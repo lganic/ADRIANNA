@@ -25,7 +25,6 @@ class Frame:
         self.screen = pygame.display.set_mode((size_x, size_y))
         self.line_surface = pygame.Surface((size_x, size_y), pygame.SRCALPHA)
 
-
         self.cached_draw_commands = []
         self.polygon_draw_commands = []
 

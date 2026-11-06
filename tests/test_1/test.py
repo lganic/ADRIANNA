@@ -19,7 +19,7 @@ def main():
     DT = 0.1
 
     WALL_PUNISH = 5
-    TARGET_REWARD = 0.1
+    TARGET_REWARD = 0.01
 
     f = Frame(500, 500, -box_size, box_size, -box_size, box_size)
 
