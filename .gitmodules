@@ -1,0 +1,3 @@
+[submodule "src/Plotato"]
+	path = src/Plotato
+	url = https://github.com/lganic/Plotato
