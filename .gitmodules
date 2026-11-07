@@ -1,3 +1,6 @@
 [submodule "src/Plotato"]
 	path = src/Plotato
 	url = https://github.com/lganic/Plotato
+[submodule "src/box2d"]
+	path = src/box2d
+	url = https://github.com/erincatto/box2d.git
