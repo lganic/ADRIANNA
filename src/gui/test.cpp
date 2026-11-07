@@ -124,31 +124,6 @@ static gboolean on_frame_timer(gpointer user_data)
     return G_SOURCE_CONTINUE;
 }
 
-// Graph stretches to fill its widget, so pad out the longer side to keep the box square.
-static void on_world_resized(GtkWidget* widget, GdkRectangle* allocation, gpointer user_data)
-{
-    plotato::Graph* graph = static_cast<plotato::Graph*>(user_data);
-
-    const double margins = 2.0 * graph->style.default_margin;
-
-    const double plot_width = std::max(1.0, allocation->width - margins);
-    const double plot_height = std::max(1.0, allocation->height - margins);
-
-    const double half_size = sim::BOX_SIZE * WORLD_MARGIN;
-
-    const double half_width = half_size * std::max(1.0, plot_width / plot_height);
-    const double half_height = half_size * std::max(1.0, plot_height / plot_width);
-
-    plotato::GraphBounds bounds;
-
-    bounds.xmin = -half_width;
-    bounds.xmax = half_width;
-    bounds.ymin = -half_height;
-    bounds.ymax = half_height;
-
-    graph->set_bounds(bounds);
-}
-
 static void on_fast_forward_toggled(GtkToggleButton* button, gpointer user_data)
 {
     static_cast<App*>(user_data)->sim.set_fast_forward(gtk_toggle_button_get_active(button));
@@ -236,6 +211,11 @@ int main(int argc, char* argv[])
     plotato::Graph world_graph(world_area, world_style);
     plotato::Graph stats_graph(stats_area, stats_style);
 
+    plotato::GraphBounds bounds{-sim::BOX_SIZE * 1.2, sim::BOX_SIZE * 1.2, -sim::BOX_SIZE * 1.2, sim::BOX_SIZE * 1.2};
+
+    world_graph.equal_aspect_framing = true;
+    world_graph.set_bounds(bounds);
+
     stats_graph.add_linear_axis(plotato::BOTTOM);
     stats_graph.add_linear_axis(plotato::LEFT);
     stats_graph.add_x_title("Simulated hours");
@@ -257,7 +237,6 @@ int main(int argc, char* argv[])
     g_signal_connect(main_window, "key-press-event", G_CALLBACK(on_key_press), &app);
     g_signal_connect(main_window, "key-release-event", G_CALLBACK(on_key_release), &app);
     g_signal_connect(main_window, "focus-out-event", G_CALLBACK(on_focus_out), &app);
-    g_signal_connect(world_area, "size-allocate", G_CALLBACK(on_world_resized), &world_graph);
     g_signal_connect(app.fast_forward_button, "toggled", G_CALLBACK(on_fast_forward_toggled), &app);
 
     app.sim.start(SEED);
