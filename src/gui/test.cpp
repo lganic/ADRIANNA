@@ -1,5 +1,7 @@
 #include <gtk/gtk.h>
 #include <iostream>
+#include <Plotato/Plotato.hpp>
+#include "inc/util/widget_location.hpp"
 
 void on_window_close(GtkWidget* widget, gpointer user_data)
 {
@@ -34,6 +36,10 @@ int main(int argc, char* argv[])
     }
 
     GtkWidget* main_window = GTK_WIDGET(gtk_builder_get_object(builder, "main_window"));
+
+    GtkWidget* drawing_surface = GTK_WIDGET(find_drawing_area(builder, "graph-area"));
+
+    plotato::Graph graph(drawing_surface);
 
     gtk_window_set_title(GTK_WINDOW(main_window), "EVO-Dev");
 

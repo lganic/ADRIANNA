@@ -38,7 +38,7 @@
                 <property name="can-focus">False</property>
                 <property name="orientation">vertical</property>
                 <child>
-                  <object class="GtkDrawingArea">
+                  <object class="GtkDrawingArea" id="graph-area">
                     <property name="width-request">100</property>
                     <property name="height-request">100</property>
                     <property name="visible">True</property>

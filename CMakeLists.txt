@@ -1,4 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 project(evodev LANGUAGES CXX)
 
@@ -10,13 +11,15 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(GTK3 REQUIRED IMPORTED_TARGET gtk+-3.0)
 
 # Builds the plotato library
-# add_subdirectory(Plotato)
+add_subdirectory(src/Plotato)
+add_subdirectory(src/gui)
 
 add_executable(evodev_test src/gui/test.cpp)
 
-# target_link_libraries(evodev_test
-#     PRIVATE
-#         plotato
-# )
+target_link_libraries(evodev_test
+    PRIVATE
+        plotato
+        gui_utils
+)
 
 target_link_libraries(evodev_test PRIVATE PkgConfig::GTK3)
