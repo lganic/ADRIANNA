@@ -115,7 +115,7 @@ Hold V: watch in real time while fast forwarding</property>
                               <object class="GtkLabel">
                                 <property name="visible">True</property>
                                 <property name="can-focus">False</property>
-                                <property name="label" translatable="yes">SAMPLE AGENT STUFF</property>
+                                <property name="label" translatable="yes">SAMPLE AGENT STUFF 2</property>
                               </object>
                             </child>
                           </object>
@@ -157,13 +157,28 @@ Hold V: watch in real time while fast forwarding</property>
                         <property name="can-focus">False</property>
                         <property name="orientation">vertical</property>
                         <child>
-                          <object class="GtkDrawingArea" id="stats-area">
-                            <property name="width-request">100</property>
-                            <property name="height-request">100</property>
+                          <object class="GtkExpander" id="score-expander">
                             <property name="visible">True</property>
-                            <property name="can-focus">False</property>
+                            <property name="can-focus">True</property>
                             <property name="hexpand">True</property>
-                            <property name="vexpand">True</property>
+                            <property name="vexpand" bind-source="score-expander" bind-property="expanded" bind-flags="sync-create">True</property>
+                            <property name="expanded">True</property>
+                            <property name="resize-toplevel">True</property>
+                            <child>
+                              <object class="GtkDrawingArea" id="score-area">
+                                <property name="visible">True</property>
+                                <property name="can-focus">False</property>
+                                <property name="hexpand">True</property>
+                                <property name="vexpand">True</property>
+                              </object>
+                            </child>
+                            <child type="label">
+                              <object class="GtkLabel">
+                                <property name="visible">True</property>
+                                <property name="can-focus">False</property>
+                                <property name="label" translatable="yes">Score Graph</property>
+                              </object>
+                            </child>
                           </object>
                           <packing>
                             <property name="expand">False</property>
@@ -172,13 +187,28 @@ Hold V: watch in real time while fast forwarding</property>
                           </packing>
                         </child>
                         <child>
-                          <object class="GtkDrawingArea" id="score-area">
-                            <property name="width-request">100</property>
-                            <property name="height-request">100</property>
+                          <object class="GtkExpander" id="stats-expander">
                             <property name="visible">True</property>
-                            <property name="can-focus">False</property>
+                            <property name="can-focus">True</property>
                             <property name="hexpand">True</property>
-                            <property name="vexpand">True</property>
+                            <property name="vexpand" bind-source="stats-expander" bind-property="expanded" bind-flags="sync-create">True</property>
+                            <property name="expanded">True</property>
+                            <property name="resize-toplevel">True</property>
+                            <child>
+                              <object class="GtkDrawingArea" id="stats-area">
+                                <property name="visible">True</property>
+                                <property name="can-focus">False</property>
+                                <property name="hexpand">True</property>
+                                <property name="vexpand">True</property>
+                              </object>
+                            </child>
+                            <child type="label">
+                              <object class="GtkLabel">
+                                <property name="visible">True</property>
+                                <property name="can-focus">False</property>
+                                <property name="label" translatable="yes">Distance Graph</property>
+                              </object>
+                            </child>
                           </object>
                           <packing>
                             <property name="expand">False</property>
