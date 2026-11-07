@@ -10,7 +10,7 @@ namespace sim {
 constexpr double PI = 3.14159265358979323846;
 
 World::World(uint64_t seed)
-    : phys_obj({0, 0}, {0, 0}, BOX_SIZE), org(INPUT_SIZE, OUTPUT_SIZE, seed) {}
+    : phys_obj({0, 0}, {0, 0}, BOX_SIZE, ORGANISM_RADIUS), org(INPUT_SIZE, OUTPUT_SIZE, seed) {}
 
 void World::step()
 {
@@ -25,14 +25,10 @@ void World::step()
     // * Y Velocity
 
     // Get distance raycasts.
+    const RaycastDistances distances = phys_obj.raycast();
+
     const double x = phys_obj.pos.x;
     const double y = phys_obj.pos.y;
-
-    const double top_dist = BOX_SIZE - y;
-    const double bottom_dist = BOX_SIZE + y;
-
-    const double left_dist = BOX_SIZE + x;
-    const double right_dist = BOX_SIZE - x;
 
     // Calculate the target position.
     t += DT;
@@ -49,10 +45,10 @@ void World::step()
     // Now make the vector. Everything is scaled to roughly [-1, 1], otherwise the raycasts
     // (which always sum to a constant) swamp the delta and velocity inputs during learning.
     const double input_vec[INPUT_SIZE] = {
-        top_dist / (2 * BOX_SIZE),
-        bottom_dist / (2 * BOX_SIZE),
-        left_dist / (2 * BOX_SIZE),
-        right_dist / (2 * BOX_SIZE),
+        distances.top / (2 * BOX_SIZE),
+        distances.bottom / (2 * BOX_SIZE),
+        distances.left / (2 * BOX_SIZE),
+        distances.right / (2 * BOX_SIZE),
         dx / BOX_SIZE,
         dy / BOX_SIZE,
         phys_obj.vel.x / VEL_SCALE,

@@ -10,6 +10,7 @@
 namespace sim {
 
 constexpr double BOX_SIZE = 2;
+constexpr double ORGANISM_RADIUS = .2;
 constexpr double TARGET_AMPLITUDE = 1;
 constexpr double TARGET_SPEED = 10;
 
@@ -24,7 +25,8 @@ constexpr int INPUT_SIZE = 8;
 constexpr int OUTPUT_SIZE = 4;
 
 // One organism in a box, chasing a target. step() is one pass of the loop from tests/test_3/test.py,
-// without any of the display stuff. Not thread safe. Only the thread running it should touch it.
+// without any of the display stuff, and with Box2D doing the physics instead of the Euler integration.
+// Not thread safe. Only the thread running it should touch it.
 class World {
 public:
     explicit World(uint64_t seed);
@@ -38,11 +40,11 @@ public:
 
     std::array<double, OUTPUT_SIZE> output_vec{}; // What the organism asked for on the last step. Up, down, left, right.
     double dist = 0; // Distance to the target after the last step.
+    double total_score = 0;
 
 private:
     Organism org;
 
-    double total_score = 0;
 };
 
 }

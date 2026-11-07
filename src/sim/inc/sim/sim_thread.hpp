@@ -36,6 +36,7 @@ struct SimFrame {
 struct SimHistory {
     std::vector<double> hours;
     std::vector<double> avg_dist;
+    std::vector<double> avg_score;
 };
 
 // Runs a World on its own thread.
@@ -73,7 +74,7 @@ private:
     void publish_frame(const SimFrame& frame);
 
     // Returns true if this made the history compact itself, which halves its resolution.
-    bool publish_history_point(double hours, double avg_dist);
+    bool publish_history_point(double hours, double avg_dist, double score);
 
     std::thread thread;
 

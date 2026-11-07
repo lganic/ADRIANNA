@@ -25,6 +25,7 @@ struct App {
 
     plotato::Graph* world_graph = nullptr;
     plotato::Graph* stats_graph = nullptr;
+    plotato::Graph* score_graph = nullptr;
 
     GtkLabel* status_label = nullptr;
     GtkToggleButton* fast_forward_button = nullptr;
@@ -66,7 +67,7 @@ static void draw_world(plotato::Graph& graph, const sim::SimFrame& frame)
 
     graph.plot({-box, -box, box, box, -box}, {-box, box, box, -box, -box}, wall_style);
 
-    graph.circle(x, y, .2, organism_style);
+    graph.circle(x, y, sim::ORGANISM_RADIUS, organism_style);
     graph.circle(frame.target.x, frame.target.y, .1, target_style);
 
     // Thrusters go on last, so that they show up on top of the organism.
@@ -75,13 +76,6 @@ static void draw_world(plotato::Graph& graph, const sim::SimFrame& frame)
     graph.plot({x, x - frame.thrust[2]}, {y, y}, thrust_style);
     graph.plot({x, x + frame.thrust[3]}, {y, y}, thrust_style);
 
-    graph.draw();
-}
-
-static void draw_stats(plotato::Graph& graph, const sim::SimHistory& history)
-{
-    graph.clear();
-    graph.plot(history.hours, history.avg_dist);
     graph.draw();
 }
 
@@ -117,7 +111,14 @@ static gboolean on_frame_timer(gpointer user_data)
         update_status(*app, now);
 
         if (app->sim.take_history(app->history)) {
-            draw_stats(*app->stats_graph, app->history);
+
+            app->stats_graph->clear();
+            app->stats_graph->plot(app->history.hours, app->history.avg_dist);
+            app->stats_graph->draw();
+
+            app->score_graph->clear();
+            app->score_graph->plot(app->history.hours, app->history.avg_score);
+            app->score_graph->draw();
         }
     }
 
@@ -201,6 +202,7 @@ int main(int argc, char* argv[])
 
     GtkWidget* world_area = GTK_WIDGET(find_drawing_area(builder, "graph-area"));
     GtkWidget* stats_area = GTK_WIDGET(find_drawing_area(builder, "stats-area"));
+    GtkWidget* score_area = GTK_WIDGET(find_drawing_area(builder, "score-area"));
 
     plotato::FigureStyle world_style;
     world_style.dont_draw_version_text = true;
@@ -210,6 +212,7 @@ int main(int argc, char* argv[])
 
     plotato::Graph world_graph(world_area, world_style);
     plotato::Graph stats_graph(stats_area, stats_style);
+    plotato::Graph score_graph(score_area, stats_style);
 
     plotato::GraphBounds bounds{-sim::BOX_SIZE * 1.2, sim::BOX_SIZE * 1.2, -sim::BOX_SIZE * 1.2, sim::BOX_SIZE * 1.2};
 
@@ -221,10 +224,16 @@ int main(int argc, char* argv[])
     stats_graph.add_x_title("Simulated hours");
     stats_graph.add_y_title("Average distance to target");
 
+    score_graph.add_linear_axis(plotato::BOTTOM);
+    score_graph.add_linear_axis(plotato::LEFT);
+    score_graph.add_x_title("Simulated hours");
+    score_graph.add_y_title("Score");
+
     App app;
 
     app.world_graph = &world_graph;
     app.stats_graph = &stats_graph;
+    app.score_graph = &score_graph;
     app.status_label = find_label(builder, "status-label");
     app.fast_forward_button = GTK_TOGGLE_BUTTON(find_button(builder, "fast-forward-button"));
     app.stats_updated_at = g_get_monotonic_time();

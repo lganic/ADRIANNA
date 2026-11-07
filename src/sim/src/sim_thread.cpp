@@ -91,12 +91,13 @@ static void merge_pairs(std::vector<double>& values)
     values.resize(merged_size);
 }
 
-bool SimThread::publish_history_point(double hours, double avg_dist)
+bool SimThread::publish_history_point(double hours, double avg_dist, double score)
 {
     std::lock_guard<std::mutex> lock(shared_mutex);
 
     history.hours.push_back(hours);
     history.avg_dist.push_back(avg_dist);
+    history.avg_score.push_back(score);
     history_changed = true;
 
     if (history.hours.size() < HISTORY_MAX_POINTS) {
@@ -106,6 +107,7 @@ bool SimThread::publish_history_point(double hours, double avg_dist)
     // Halving the resolution keeps the whole run on the graph, with evenly spaced points.
     merge_pairs(history.hours);
     merge_pairs(history.avg_dist);
+    merge_pairs(history.avg_score);
 
     return true;
 }
@@ -127,6 +129,7 @@ void SimThread::run(uint64_t seed)
     double bin_width = HISTORY_START_BIN_WIDTH;
     double bin_start = 0;
     double bin_dist_sum = 0;
+    double bin_score_sum = 0;
     uint64_t bin_dist_count = 0;
 
     clock::time_point next_frame = clock::now();
@@ -140,19 +143,22 @@ void SimThread::run(uint64_t seed)
         frame_dist_count++;
 
         bin_dist_sum += world.dist;
+        bin_score_sum += world.total_score;
         bin_dist_count++;
+
 
         if (world.t - bin_start >= bin_width) {
 
             const double center = (bin_start + world.t) / 2;
 
-            if (publish_history_point(center / 3600, bin_dist_sum / bin_dist_count)) {
+            if (publish_history_point(center / 3600, bin_dist_sum / bin_dist_count, bin_score_sum / bin_dist_count)) {
                 bin_width *= 2;
             }
 
             bin_start = world.t;
             bin_dist_sum = 0;
             bin_dist_count = 0;
+            bin_score_sum = 0;
         }
 
         const bool fast = fast_forward.load(std::memory_order_relaxed) && !peek.load(std::memory_order_relaxed);

@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-project(evodev LANGUAGES CXX)
+project(evodev LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -23,6 +23,13 @@ add_subdirectory(src/cdn)
 # even in Debug builds, while the GUI code keeps the normal debug settings.
 if(NOT MSVC)
     target_compile_options(codeepneat PRIVATE -O2)
+endif()
+
+# Builds Box2D. Same deal as CDN above, since every physics step of fast forward goes through it.
+add_subdirectory(src/box2d)
+
+if(NOT MSVC)
+    target_compile_options(box2d PRIVATE -O2)
 endif()
 
 add_subdirectory(src/sim)

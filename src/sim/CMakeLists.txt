@@ -10,7 +10,7 @@ target_include_directories(evosim PUBLIC
 )
 
 # No GTK in here on purpose. The simulation only ever talks to the GUI through plain data.
-target_link_libraries(evosim PUBLIC codeepneat)
+target_link_libraries(evosim PUBLIC codeepneat box2d)
 
 if(MSVC)
     target_compile_options(evosim PRIVATE /W4 /permissive-)
