@@ -51,6 +51,14 @@ struct App {
     GtkBox* stats_page = nullptr;
     GtkSizeGroup* row_labels = nullptr;
 
+    // Button viewport controls
+    GtkButton* up_button;
+    GtkButton* down_button;
+    GtkButton* left_button;
+    GtkButton* right_button;
+    GtkButton* zoom_in_button;
+    GtkButton* zoom_out_button;
+
     GtkLabel* status_label = nullptr;
     GtkToggleButton* fast_forward_button = nullptr;
 
@@ -402,6 +410,14 @@ int run(int argc, char* argv[], const char* title, uint64_t seed)
     app.status_label = find_label(builder, "status-label");
     app.fast_forward_button = GTK_TOGGLE_BUTTON(find_button(builder, "fast-forward-button"));
     app.stats_updated_at = g_get_monotonic_time();
+
+    app.left_button = find_button(builder, "t-left");
+    app.right_button = find_button(builder, "t-right");
+    app.up_button = find_button(builder, "t-up");
+    app.down_button = find_button(builder, "t-down");
+    
+    app.zoom_in_button = find_button(builder, "z-in");
+    app.zoom_out_button = find_button(builder, "z-out");
 
     build_project_widgets(app);
 
