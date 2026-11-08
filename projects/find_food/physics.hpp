@@ -17,7 +17,7 @@ struct Point {
 
 // What happened during a call to Arena::sim()
 struct SimResult {
-    bool hit_wall = false;
+    bool touching_wall = false; // Hit one, or was resting against one, at any point during the call.
     int eaten = 0;
 };
 

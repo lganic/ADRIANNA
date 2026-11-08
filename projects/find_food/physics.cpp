@@ -24,6 +24,12 @@ constexpr float VISION_WIDTH = .3f;
 // New food won't turn up any closer to the agent than this, on top of their sizes.
 constexpr double FOOD_SPAWN_GAP = .3;
 
+// How close to a wall counts as being up against it. This is Box2D's linear slop, the gap that it
+// treats as resting contact, and is well inside the 2cm that it starts reporting shapes as touching.
+constexpr float WALL_TOUCH_GAP = .005f;
+
+constexpr int WALL_SIDES = 4;
+
 constexpr uint64_t WALL_CATEGORY = 1;
 constexpr uint64_t FOOD_CATEGORY = 2;
 constexpr uint64_t AGENT_CATEGORY = 4;
@@ -44,7 +50,7 @@ static void create_walls(b2WorldId world, float box_size)
     const float center = box_size + half_thickness;
     const float half_length = box_size + 2 * half_thickness; // Long enough to fill in the corners.
 
-    const b2Polygon sides[] = {
+    const b2Polygon sides[WALL_SIDES] = {
         b2MakeOffsetBox(half_length, half_thickness, {0, center}, b2Rot_identity),
         b2MakeOffsetBox(half_length, half_thickness, {0, -center}, b2Rot_identity),
         b2MakeOffsetBox(half_thickness, half_length, {-center, 0}, b2Rot_identity),
@@ -151,6 +157,29 @@ static double clamp_thrust(double force)
     return std::min(MAX_THRUST, std::max(0.0, force));
 }
 
+// Whether the agent is up against a wall right now. Goes by the actual gap, since hit events stop
+// once it has stopped moving, Box2D's touching starts from 2cm away, and contact impulses are zero
+// when it has come to rest with its thrusters off, which is how it usually gets stuck.
+static bool against_wall(b2BodyId agent)
+{
+    b2ContactData contacts[WALL_SIDES];
+
+    const int count = b2Body_GetContactData(agent, contacts, WALL_SIDES);
+
+    for (int contact = 0; contact < count; contact++) {
+
+        const b2Manifold& manifold = contacts[contact].manifold;
+
+        for (int point = 0; point < manifold.pointCount; point++) {
+            if (manifold.points[point].separation < WALL_TOUCH_GAP) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
 SimResult Arena::sim(double up_force, double down_force, double left_force, double right_force, double dt)
 {
     const double thrust_x = clamp_thrust(right_force) - clamp_thrust(left_force);
@@ -172,8 +201,9 @@ SimResult Arena::sim(double up_force, double down_force, double left_force, doub
 
         b2World_Step(world, step_time, PHYSICS_SUBSTEPS);
 
-        if (b2World_GetContactEvents(world).hitCount > 0) {
-            result.hit_wall = true;
+        // Both, since a fast bounce can come and go inside one step without ever starting one that close.
+        if (b2World_GetContactEvents(world).hitCount > 0 || against_wall(agent)) {
+            result.touching_wall = true;
         }
 
         const b2Pos position = b2Body_GetPosition(agent);

@@ -83,7 +83,7 @@ void FindFood::step(double)
 
     total_score = result.eaten * food_reward.value() - closeness_reward.value() * (1 - closest);
 
-    if (result.hit_wall) {
+    if (result.touching_wall) {
         total_score -= wall_punish.value();
     }
 
