@@ -2,6 +2,7 @@
 #define LOCATION_HPP
 
 #include <gtk/gtk.h>
+#include <string>
 
 GtkWidget* get_cached_widget(GtkBuilder* builder, const std::string& id);
 GtkWidget* find_entry(GtkBuilder* builder, const char* entry_id);

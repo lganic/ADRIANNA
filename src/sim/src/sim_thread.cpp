@@ -1,8 +1,8 @@
 #include <sim/sim_thread.hpp>
 
-#include <algorithm>
 #include <chrono>
 #include <cstddef>
+#include <utility>
 
 namespace sim {
 
@@ -12,16 +12,21 @@ constexpr double HISTORY_START_BIN_WIDTH = 20;
 // When the history reaches this many points, neighbours get merged. Has to be even.
 constexpr std::size_t HISTORY_MAX_POINTS = 2048;
 
+SimThread::SimThread(Project& project, Ui& ui) : project(project), ui(ui)
+{
+    history.values.resize(ui.history_graphs.size());
+}
+
 SimThread::~SimThread()
 {
     stop();
 }
 
-void SimThread::start(uint64_t seed)
+void SimThread::start()
 {
     stop_requested = false;
 
-    thread = std::thread(&SimThread::run, this, seed);
+    thread = std::thread(&SimThread::run, this);
 }
 
 void SimThread::stop()
@@ -51,7 +56,7 @@ bool SimThread::take_frame(SimFrame& out)
         return false;
     }
 
-    out = latest_frame;
+    out = std::move(latest_frame);
     frame_changed = false;
 
     return true;
@@ -71,11 +76,27 @@ bool SimThread::take_history(SimHistory& out)
     return true;
 }
 
-void SimThread::publish_frame(const SimFrame& frame)
+void SimThread::publish_frame(double t, uint64_t steps)
 {
+    SimFrame frame;
+
+    frame.t = t;
+    frame.steps = steps;
+
+    // This goes first, since drawing is where a project updates anything that is slow to work out.
+    project.draw(frame.scene);
+
+    for (const FieldState& field : ui.fields) {
+        frame.fields.push_back(field.value);
+    }
+
+    for (const CurveGraphState& curve : ui.curve_graphs) {
+        frame.curves.push_back({curve.x, curve.y});
+    }
+
     std::lock_guard<std::mutex> lock(shared_mutex);
 
-    latest_frame = frame;
+    latest_frame = std::move(frame);
     frame_changed = true;
 }
 
@@ -91,13 +112,27 @@ static void merge_pairs(std::vector<double>& values)
     values.resize(merged_size);
 }
 
-bool SimThread::publish_history_point(double hours, double avg_dist, double score)
+bool SimThread::publish_history_point(double hours)
 {
     std::lock_guard<std::mutex> lock(shared_mutex);
 
     history.hours.push_back(hours);
-    history.avg_dist.push_back(avg_dist);
-    history.avg_score.push_back(score);
+
+    std::size_t index = 0;
+
+    for (HistoryGraphState& graph : ui.history_graphs) {
+
+        // A project doesn't have to add something every step, so a point can end up with nothing in it.
+        if (graph.count > 0) {
+            graph.last = graph.sum / graph.count;
+        }
+
+        history.values[index++].push_back(graph.last);
+
+        graph.sum = 0;
+        graph.count = 0;
+    }
+
     history_changed = true;
 
     if (history.hours.size() < HISTORY_MAX_POINTS) {
@@ -106,86 +141,60 @@ bool SimThread::publish_history_point(double hours, double avg_dist, double scor
 
     // Halving the resolution keeps the whole run on the graph, with evenly spaced points.
     merge_pairs(history.hours);
-    merge_pairs(history.avg_dist);
-    merge_pairs(history.avg_score);
+
+    for (std::vector<double>& values : history.values) {
+        merge_pairs(values);
+    }
 
     return true;
 }
 
-void SimThread::run(uint64_t seed)
+void SimThread::run()
 {
     using clock = std::chrono::steady_clock;
 
     const auto frame_time = std::chrono::duration_cast<clock::duration>(std::chrono::duration<double>(1.0 / FPS));
 
-    World world(seed);
+    const double time_step = project.time_step();
 
+    double t = 0;
     uint64_t steps = 0;
 
     double displayed_at = -99999;
-    double frame_dist_sum = 0;
-    uint64_t frame_dist_count = 0;
 
     double bin_width = HISTORY_START_BIN_WIDTH;
     double bin_start = 0;
-    double bin_dist_sum = 0;
-    double bin_score_sum = 0;
-    uint64_t bin_dist_count = 0;
 
     clock::time_point next_frame = clock::now();
 
     while (!stop_requested.load(std::memory_order_relaxed)) {
 
-        world.step();
+        t += time_step;
+
+        project.step(t);
         steps++;
 
-        frame_dist_sum += world.dist;
-        frame_dist_count++;
+        if (t - bin_start >= bin_width) {
 
-        bin_dist_sum += world.dist;
-        bin_score_sum += world.total_score;
-        bin_dist_count++;
+            const double center = (bin_start + t) / 2;
 
-
-        if (world.t - bin_start >= bin_width) {
-
-            const double center = (bin_start + world.t) / 2;
-
-            if (publish_history_point(center / 3600, bin_dist_sum / bin_dist_count, bin_score_sum / bin_dist_count)) {
+            if (publish_history_point(center / 3600)) {
                 bin_width *= 2;
             }
 
-            bin_start = world.t;
-            bin_dist_sum = 0;
-            bin_dist_count = 0;
-            bin_score_sum = 0;
+            bin_start = t;
         }
 
         const bool fast = fast_forward.load(std::memory_order_relaxed) && !peek.load(std::memory_order_relaxed);
         const double display_after = fast ? FAST : -1;
 
-        if (world.t - displayed_at < display_after) {
+        if (t - displayed_at < display_after) {
             continue;
         }
 
-        displayed_at = world.t;
+        displayed_at = t;
 
-        SimFrame frame;
-
-        frame.t = world.t;
-        frame.organism = world.phys_obj.pos;
-        frame.target = world.target;
-        frame.avg_dist = frame_dist_sum / frame_dist_count;
-        frame.steps = steps;
-
-        for (std::size_t i = 0; i < frame.thrust.size(); i++) {
-            frame.thrust[i] = std::max(0.0, world.output_vec[i]);
-        }
-
-        publish_frame(frame);
-
-        frame_dist_sum = 0;
-        frame_dist_count = 0;
+        publish_frame(t, steps);
 
         if (fast) {
             continue; // Fast forward never waits for anything.

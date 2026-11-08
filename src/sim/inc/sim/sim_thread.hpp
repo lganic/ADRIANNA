@@ -1,9 +1,8 @@
 #ifndef SIM_SIM_THREAD_HPP
 #define SIM_SIM_THREAD_HPP
 
-#include <sim/world.hpp>
+#include <sim/project.hpp>
 
-#include <array>
 #include <atomic>
 #include <cstdint>
 #include <mutex>
@@ -18,63 +17,68 @@ constexpr double FAST = 1000;
 // The speed of the simulation when it is not fast forwarding: one step per frame.
 constexpr double FPS = 30;
 
-// Everything the GUI needs to draw one frame of the simulation.
+struct Curve {
+    std::vector<double> x;
+    std::vector<double> y;
+};
+
+// Everything the GUI needs to show one frame of the simulation.
 struct SimFrame {
     double t = 0;
 
-    Point organism;
-    Point target;
-
-    std::array<double, OUTPUT_SIZE> thrust{}; // Up, down, left, right. Clamped, so what the thrusters really did.
-
-    double avg_dist = 0; // Average distance to the target since the previous frame.
-
     uint64_t steps = 0; // Total steps simulated so far.
+
+    Scene scene;
+
+    std::vector<double> fields; // In the same order as Ui::fields.
+    std::vector<Curve> curves; // In the same order as Ui::curve_graphs.
 };
 
-// The learning curve so far. Stays a bounded size, no matter how long the simulation has been running.
+// All the history graphs so far. Stays a bounded size, no matter how long the simulation has been running.
 struct SimHistory {
     std::vector<double> hours;
-    std::vector<double> avg_dist;
-    std::vector<double> avg_score;
+    std::vector<std::vector<double>> values; // In the same order as Ui::history_graphs.
 };
 
-// Runs a World on its own thread.
+// Runs a Project on its own thread.
 //
-// The World lives entirely on that thread, and all the GTK / Plotato calls stay on the GUI thread
-// (neither is safe to call from another thread). So the two only ever meet here:
-//   GUI -> simulation: the atomic control flags. Read every step, for free.
-//   simulation -> GUI: the latest frame and history, copied in and out under a mutex.
+// The Project belongs to that thread once it starts, and all the GTK / Plotato calls stay on the GUI
+// thread (neither is safe to call from another thread). So the two only ever meet here:
+//   GUI -> simulation: the atomic control flags, and the Controls in the Ui. Read every step, for free.
+//   simulation -> GUI: the latest frame and history, handed over under a mutex.
 //
 // The simulation never waits on the GUI. If it publishes faster than the GUI can look, the older
 // frames just get overwritten, which is what lets fast forward run flat out.
 class SimThread {
 public:
-    SimThread() = default;
+    SimThread(Project& project, Ui& ui);
     ~SimThread();
 
     SimThread(const SimThread&) = delete;
     SimThread& operator=(const SimThread&) = delete;
 
-    void start(uint64_t seed);
+    void start();
     void stop();
 
     void set_fast_forward(bool enabled);
 
-    // While held, fast forward is overridden so the organism can be watched in real time.
+    // While held, fast forward is overridden so the project can be watched in real time.
     void set_peek(bool held);
 
-    // Copy out the latest data. These return false, and leave `out` alone, if nothing changed since the last call.
+    // Get the latest data. These return false, and leave `out` alone, if nothing changed since the last call.
     bool take_frame(SimFrame& out);
     bool take_history(SimHistory& out);
 
 private:
-    void run(uint64_t seed);
+    void run();
 
-    void publish_frame(const SimFrame& frame);
+    void publish_frame(double t, uint64_t steps);
 
     // Returns true if this made the history compact itself, which halves its resolution.
-    bool publish_history_point(double hours, double avg_dist, double score);
+    bool publish_history_point(double hours);
+
+    Project& project;
+    Ui& ui;
 
     std::thread thread;
 

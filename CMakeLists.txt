@@ -34,13 +34,22 @@ endif()
 
 add_subdirectory(src/sim)
 
-add_executable(evodev_test src/gui/test.cpp)
+# Every folder in projects/ gets the GUI compiled for it, as its own executable. See projects/README.md
+include(cmake/EvoDevProject.cmake)
 
-target_link_libraries(evodev_test
-    PRIVATE
-        plotato
-        gui_utils
-        evosim
-)
+set(EVODEV_PROJECTS "" CACHE STRING "The projects to compile, separated by semicolons. Empty means all of them.")
 
-target_link_libraries(evodev_test PRIVATE PkgConfig::GTK3)
+if(NOT EVODEV_PROJECTS)
+    file(GLOB project_files CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/projects/*/CMakeLists.txt)
+
+    foreach(project_file ${project_files})
+        get_filename_component(project_dir ${project_file} DIRECTORY)
+        get_filename_component(project_name ${project_dir} NAME)
+
+        list(APPEND EVODEV_PROJECTS ${project_name})
+    endforeach()
+endif()
+
+foreach(project_name ${EVODEV_PROJECTS})
+    add_subdirectory(projects/${project_name})
+endforeach()
