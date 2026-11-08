@@ -17,21 +17,16 @@ constexpr double FAST = 1000;
 // The speed of the simulation when it is not fast forwarding: one step per frame.
 constexpr double FPS = 30;
 
-struct Curve {
-    std::vector<double> x;
-    std::vector<double> y;
-};
-
 // Everything the GUI needs to show one frame of the simulation.
 struct SimFrame {
     double t = 0;
 
     uint64_t steps = 0; // Total steps simulated so far.
 
-    Scene scene;
+    PlotContents world;
 
+    std::vector<PlotContents> live_graphs; // In the same order as Ui::live_graphs.
     std::vector<double> fields; // In the same order as Ui::fields.
-    std::vector<Curve> curves; // In the same order as Ui::curve_graphs.
 };
 
 // All the history graphs so far. Stays a bounded size, no matter how long the simulation has been running.
@@ -42,8 +37,9 @@ struct SimHistory {
 
 // Runs a Project on its own thread.
 //
-// The Project belongs to that thread once it starts, and all the GTK / Plotato calls stay on the GUI
-// thread (neither is safe to call from another thread). So the two only ever meet here:
+// The Project belongs to that thread once it starts, and all the GTK calls stay on the GUI thread
+// (it isn't safe to call from another thread). Projects still get to draw with Plotato from over
+// here, for how that works see canvas.hpp. So the two threads only ever meet here:
 //   GUI -> simulation: the atomic control flags, and the Controls in the Ui. Read every step, for free.
 //   simulation -> GUI: the latest frame and history, handed over under a mutex.
 //

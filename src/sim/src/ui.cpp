@@ -11,13 +11,22 @@ HistoryGraph Ui::add_history_graph(GraphOptions options)
     return HistoryGraph(history_graphs.back());
 }
 
-CurveGraph Ui::add_curve_graph(GraphOptions options)
+LiveGraph Ui::add_live_graph(GraphOptions options)
 {
-    items.push_back({ItemType::CurveGraph, curve_graphs.size()});
+    items.push_back({ItemType::LiveGraph, live_graphs.size()});
 
-    curve_graphs.push_back({std::move(options)});
+    live_graphs.push_back({std::move(options)});
 
-    return CurveGraph(curve_graphs.back());
+    return LiveGraph(live_graphs.back());
+}
+
+void Ui::create_buffers()
+{
+    world_buffer = std::make_unique<OffscreenCanvas>();
+
+    for (LiveGraphState& graph : live_graphs) {
+        graph.buffer = std::make_unique<OffscreenCanvas>();
+    }
 }
 
 Field Ui::add_field(FieldOptions options)

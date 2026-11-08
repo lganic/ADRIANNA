@@ -33,10 +33,10 @@ public:
     FindFood(sim::Ui& ui, uint64_t seed);
 
     double time_step() const override;
-    sim::Bounds world_bounds() const override;
+    void setup_world(plotato::Graph& graph) override;
 
     void step(double t) override;
-    void draw(sim::Scene& scene) override;
+    void draw(plotato::Graph& world) override;
 
     Arena arena;
 
@@ -56,7 +56,7 @@ private:
     sim::Control effort_punish;
     sim::Control wall_punish;
 
-    sim::CurveGraph vision_graph;
+    sim::LiveGraph vision_graph;
 
     sim::Field eaten_field;
 

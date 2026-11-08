@@ -28,9 +28,10 @@ double ChaseTarget::time_step() const
     return DT;
 }
 
-sim::Bounds ChaseTarget::world_bounds() const
+void ChaseTarget::setup_world(plotato::Graph& graph)
 {
-    return {-BOX_SIZE * 1.2, BOX_SIZE * 1.2, -BOX_SIZE * 1.2, BOX_SIZE * 1.2};
+    graph.equal_aspect_framing = true;
+    graph.set_bounds({-BOX_SIZE * 1.2, BOX_SIZE * 1.2, -BOX_SIZE * 1.2, BOX_SIZE * 1.2});
 }
 
 void ChaseTarget::step(double t)
@@ -104,22 +105,31 @@ void ChaseTarget::step(double t)
     recent_score += RECENT_RATE * (total_score - recent_score);
 }
 
-void ChaseTarget::draw(sim::Scene& scene)
+void ChaseTarget::draw(plotato::Graph& world)
 {
     constexpr double box = BOX_SIZE;
 
-    constexpr sim::Color wall_color = {0, 0, 255};
-    constexpr sim::Color organism_color = {0, 200, 0};
-    constexpr sim::Color target_color = {255, 0, 0};
-    constexpr sim::Color thrust_color = {255, 0, 0};
+    plotato::PlotStyle wall_style;
+    wall_style.line_color = plotato::Color(0, 0, 255);
+
+    plotato::PlotStyle thrust_style;
+    thrust_style.line_color = plotato::Color(255, 0, 0);
+
+    plotato::ShapeStyle organism_style;
+    organism_style.fill = plotato::Color(0, 200, 0);
+    organism_style.outline = organism_style.fill;
+
+    plotato::ShapeStyle target_style;
+    target_style.fill = plotato::Color(255, 0, 0);
+    target_style.outline = target_style.fill;
 
     const double x = phys_obj.pos.x;
     const double y = phys_obj.pos.y;
 
-    scene.line({-box, -box, box, box, -box}, {-box, box, box, -box, -box}, wall_color);
+    world.plot({-box, -box, box, box, -box}, {-box, box, box, -box, -box}, wall_style);
 
-    scene.circle(x, y, ORGANISM_RADIUS, organism_color);
-    scene.circle(target.x, target.y, .1, target_color);
+    world.circle(x, y, ORGANISM_RADIUS, organism_style);
+    world.circle(target.x, target.y, .1, target_style);
 
     // Clamped, so these show what the thrusters really did.
     const double up = std::max(0.0, output_vec[0]);
@@ -128,10 +138,10 @@ void ChaseTarget::draw(sim::Scene& scene)
     const double right = std::max(0.0, output_vec[3]);
 
     // Thrusters go on last, so that they show up on top of the organism.
-    scene.line({x, x}, {y, y + up}, thrust_color);
-    scene.line({x, x}, {y, y - down}, thrust_color);
-    scene.line({x, x - left}, {y, y}, thrust_color);
-    scene.line({x, x + right}, {y, y}, thrust_color);
+    world.plot({x, x}, {y, y + up}, thrust_style);
+    world.plot({x, x}, {y, y - down}, thrust_style);
+    world.plot({x, x - left}, {y, y}, thrust_style);
+    world.plot({x, x + right}, {y, y}, thrust_style);
 
     distance_field.set(recent_dist);
     score_field.set(recent_score);

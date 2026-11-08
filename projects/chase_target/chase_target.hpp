@@ -30,10 +30,10 @@ public:
     ChaseTarget(sim::Ui& ui, uint64_t seed);
 
     double time_step() const override;
-    sim::Bounds world_bounds() const override;
+    void setup_world(plotato::Graph& graph) override;
 
     void step(double t) override;
-    void draw(sim::Scene& scene) override;
+    void draw(plotato::Graph& world) override;
 
     Point target;
 

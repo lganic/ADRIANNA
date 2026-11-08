@@ -28,7 +28,7 @@ constexpr int PAGE_SPACING = 6;
 // A graph, and the expander that it sits under.
 struct GraphView {
     GtkExpander* expander = nullptr;
-    std::unique_ptr<plotato::Graph> graph;
+    std::unique_ptr<sim::Canvas> graph;
 };
 
 // Everything that the GTK callbacks need. All of this belongs to the GUI thread, other than sim,
@@ -39,13 +39,13 @@ struct App {
     sim::SimThread sim;
     sim::Ui& ui;
 
-    std::unique_ptr<plotato::Graph> world_graph;
+    std::unique_ptr<sim::Canvas> world_graph;
 
     std::vector<GraphView> history_graphs; // In the same order as Ui::history_graphs.
-    std::vector<GraphView> curve_graphs; // In the same order as Ui::curve_graphs.
+    std::vector<GraphView> live_graphs; // In the same order as Ui::live_graphs.
     std::vector<GtkLabel*> field_labels; // In the same order as Ui::fields.
 
-    bool graphs_opened = false; // Closed graphs don't get updated, so opening one needs a redraw.
+    bool graphs_opened = false; // Closed history graphs don't get updated, so opening one needs a redraw.
 
     GtkBox* world_page = nullptr;
     GtkBox* stats_page = nullptr;
@@ -71,58 +71,33 @@ static void on_window_close(GtkWidget*, gpointer user_data)
     gtk_main_quit();
 }
 
-static plotato::Color to_plotato(sim::Color color)
+// Put a finished frame on screen. It all lands at once, so that a half drawn one never shows.
+static void show_frame(sim::Canvas& canvas, sim::PlotContents& contents)
 {
-    return plotato::Color(color.r, color.g, color.b);
+    canvas.swap_contents(contents);
+    canvas.draw();
 }
 
-static void draw_world(plotato::Graph& graph, const sim::Scene& scene)
+static void draw_live_graphs(App& app)
 {
-    graph.clear();
-
-    for (const sim::Scene::Shape& shape : scene.shapes) {
-
-        if (shape.radius > 0) {
-            plotato::ShapeStyle style;
-            style.fill = to_plotato(shape.color);
-            style.outline = style.fill;
-
-            graph.circle(shape.x[0], shape.y[0], shape.radius, style);
+    for (std::size_t i = 0; i < app.live_graphs.size() && i < app.frame.live_graphs.size(); i++) {
+        if (gtk_expander_get_expanded(app.live_graphs[i].expander)) {
+            show_frame(*app.live_graphs[i].graph, app.frame.live_graphs[i]);
         }
-        else {
-            plotato::PlotStyle style;
-            style.line_color = to_plotato(shape.color);
-            style.line_width = shape.line_width;
-
-            graph.plot(shape.x, shape.y, style);
-        }
-    }
-
-    graph.draw();
-}
-
-static void draw_graph(GraphView& view, const std::vector<double>& x, const std::vector<double>& y)
-{
-    if (!gtk_expander_get_expanded(view.expander)) {
-        return;
-    }
-
-    view.graph->clear();
-    view.graph->plot(x, y);
-    view.graph->draw();
-}
-
-static void draw_curves(App& app)
-{
-    for (std::size_t i = 0; i < app.curve_graphs.size() && i < app.frame.curves.size(); i++) {
-        draw_graph(app.curve_graphs[i], app.frame.curves[i].x, app.frame.curves[i].y);
     }
 }
 
 static void draw_history(App& app)
 {
     for (std::size_t i = 0; i < app.history_graphs.size() && i < app.history.values.size(); i++) {
-        draw_graph(app.history_graphs[i], app.history.hours, app.history.values[i]);
+
+        GraphView& view = app.history_graphs[i];
+
+        if (gtk_expander_get_expanded(view.expander)) {
+            view.graph->clear();
+            view.graph->plot(app.history.hours, app.history.values[i]);
+            view.graph->draw();
+        }
     }
 }
 
@@ -167,8 +142,8 @@ static gboolean on_frame_timer(gpointer user_data)
     App* app = static_cast<App*>(user_data);
 
     if (app->sim.take_frame(app->frame)) {
-        draw_world(*app->world_graph, app->frame.scene);
-        draw_curves(*app);
+        show_frame(*app->world_graph, app->frame.world);
+        draw_live_graphs(*app);
     }
 
     const gint64 now = g_get_monotonic_time();
@@ -180,7 +155,6 @@ static gboolean on_frame_timer(gpointer user_data)
 
         if (app->sim.take_history(app->history) || app->graphs_opened) {
             draw_history(*app);
-            draw_curves(*app);
 
             app->graphs_opened = false;
         }
@@ -297,15 +271,15 @@ static GraphView add_graph(App& app, const sim::GraphOptions& options)
     GraphView view;
 
     view.expander = GTK_EXPANDER(expander);
-    view.graph = std::make_unique<plotato::Graph>(area, style);
+    view.graph = std::make_unique<sim::Canvas>(area, style);
 
     view.graph->add_linear_axis(plotato::BOTTOM);
     view.graph->add_linear_axis(plotato::LEFT);
     view.graph->add_x_title(options.x_label);
     view.graph->add_y_title(options.y_label);
 
-    if (options.bounds) {
-        view.graph->set_bounds({options.bounds->min_x, options.bounds->max_x, options.bounds->min_y, options.bounds->max_y});
+    if (options.setup) {
+        options.setup(*view.graph);
     }
 
     return view;
@@ -367,8 +341,8 @@ static void build_project_widgets(App& app)
             app.history_graphs.push_back(add_graph(app, app.ui.history_graphs[item.index].options));
             break;
 
-        case sim::Ui::ItemType::CurveGraph:
-            app.curve_graphs.push_back(add_graph(app, app.ui.curve_graphs[item.index].options));
+        case sim::Ui::ItemType::LiveGraph:
+            app.live_graphs.push_back(add_graph(app, app.ui.live_graphs[item.index].options));
             break;
 
         case sim::Ui::ItemType::Field:
@@ -436,11 +410,9 @@ int run(int argc, char* argv[], const char* title, uint64_t seed)
     plotato::FigureStyle world_style;
     world_style.dont_draw_version_text = true;
 
-    const sim::Bounds bounds = project->world_bounds();
+    app.world_graph = std::make_unique<sim::Canvas>(world_area, world_style);
 
-    app.world_graph = std::make_unique<plotato::Graph>(world_area, world_style);
-    app.world_graph->equal_aspect_framing = true;
-    app.world_graph->set_bounds({bounds.min_x, bounds.max_x, bounds.min_y, bounds.max_y});
+    project->setup_world(*app.world_graph);
 
     gtk_stack_set_visible_child_name(GTK_STACK(gtk_builder_get_object(builder, "detailstack")), "Stats");
 

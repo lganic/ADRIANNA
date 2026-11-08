@@ -15,6 +15,8 @@ constexpr std::size_t HISTORY_MAX_POINTS = 2048;
 SimThread::SimThread(Project& project, Ui& ui) : project(project), ui(ui)
 {
     history.values.resize(ui.history_graphs.size());
+
+    ui.create_buffers();
 }
 
 SimThread::~SimThread()
@@ -84,14 +86,21 @@ void SimThread::publish_frame(double t, uint64_t steps)
     frame.steps = steps;
 
     // This goes first, since drawing is where a project updates anything that is slow to work out.
-    project.draw(frame.scene);
+    project.draw(*ui.world_buffer);
+
+    // The frame starts out empty, so swapping leaves the buffers blank and ready for next time.
+    ui.world_buffer->swap_contents(frame.world);
+
+    frame.live_graphs.resize(ui.live_graphs.size());
+
+    std::size_t index = 0;
+
+    for (LiveGraphState& graph : ui.live_graphs) {
+        graph.buffer->swap_contents(frame.live_graphs[index++]);
+    }
 
     for (const FieldState& field : ui.fields) {
         frame.fields.push_back(field.value);
-    }
-
-    for (const CurveGraphState& curve : ui.curve_graphs) {
-        frame.curves.push_back({curve.x, curve.y});
     }
 
     std::lock_guard<std::mutex> lock(shared_mutex);

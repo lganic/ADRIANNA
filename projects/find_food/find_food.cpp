@@ -25,8 +25,8 @@ FindFood::FindFood(sim::Ui& ui, uint64_t seed)
       closeness_reward(ui.add_slider({"Closeness reward", 0, 5, 1, .1})),
       effort_punish(ui.add_slider({"Effort punishment", 0, 1, .1, .01})),
       wall_punish(ui.add_slider({"Wall punishment", 0, 20, 5, .5})),
-      vision_graph(ui.add_curve_graph({"What the agent can see", "Closeness", sim::Page::World, "Direction (degrees)", true,
-                                       sim::Bounds{0, 360.0 * (VISION_RAYS - 1) / VISION_RAYS, 0, 1}})),
+      vision_graph(ui.add_live_graph({"What the agent can see", "Closeness", sim::Page::World, "Direction (degrees)", true,
+                                      [](plotato::Graph& graph) { graph.set_bounds({0, 360.0 * (VISION_RAYS - 1) / VISION_RAYS, 0, 1}); }})),
       eaten_field(ui.add_field({"Food eaten", sim::Page::Stats, "%.0f"})),
       food_graph(ui.add_history_graph({"Food Graph", "Food per hour"})),
       score_graph(ui.add_history_graph({"Score Graph", "Score", sim::Page::Stats, "Simulated hours", false})) {}
@@ -36,9 +36,10 @@ double FindFood::time_step() const
     return DT;
 }
 
-sim::Bounds FindFood::world_bounds() const
+void FindFood::setup_world(plotato::Graph& graph)
 {
-    return {-BOX_SIZE * 1.2, BOX_SIZE * 1.2, -BOX_SIZE * 1.2, BOX_SIZE * 1.2};
+    graph.equal_aspect_framing = true;
+    graph.set_bounds({-BOX_SIZE * 1.2, BOX_SIZE * 1.2, -BOX_SIZE * 1.2, BOX_SIZE * 1.2});
 }
 
 void FindFood::step(double)
@@ -97,23 +98,35 @@ void FindFood::step(double)
     score_graph.add(total_score);
 }
 
-void FindFood::draw(sim::Scene& scene)
+void FindFood::draw(plotato::Graph& world)
 {
     constexpr double box = BOX_SIZE;
 
-    constexpr sim::Color wall_color = {0, 0, 255};
-    constexpr sim::Color food_color = {230, 140, 0};
-    constexpr sim::Color vision_color = {170, 170, 170};
-    constexpr sim::Color agent_color = {0, 200, 0};
-    constexpr sim::Color thrust_color = {255, 0, 0};
+    plotato::PlotStyle wall_style;
+    wall_style.line_color = plotato::Color(0, 0, 255);
+
+    plotato::PlotStyle vision_style;
+    vision_style.line_color = plotato::Color(170, 170, 170);
+    vision_style.line_width = 1;
+
+    plotato::PlotStyle thrust_style;
+    thrust_style.line_color = plotato::Color(255, 0, 0);
+
+    plotato::ShapeStyle food_style;
+    food_style.fill = plotato::Color(230, 140, 0);
+    food_style.outline = food_style.fill;
+
+    plotato::ShapeStyle agent_style;
+    agent_style.fill = plotato::Color(0, 200, 0);
+    agent_style.outline = agent_style.fill;
 
     const double x = arena.pos.x;
     const double y = arena.pos.y;
 
-    scene.line({-box, -box, box, box, -box}, {-box, box, box, -box, -box}, wall_color);
+    world.plot({-box, -box, box, box, -box}, {-box, box, box, -box, -box}, wall_style);
 
     for (const Point& food : arena.food) {
-        scene.circle(food.x, food.y, FOOD_RADIUS, food_color);
+        world.circle(food.x, food.y, FOOD_RADIUS, food_style);
     }
 
     std::vector<double> degrees;
@@ -127,11 +140,11 @@ void FindFood::draw(sim::Scene& scene)
         if (vision[ray] > 0) {
             const double seen_at = (1 - vision[ray]) * vision_range.value();
 
-            scene.line({x, x + std::cos(ray_angle(ray)) * seen_at}, {y, y + std::sin(ray_angle(ray)) * seen_at}, vision_color, 1);
+            world.plot({x, x + std::cos(ray_angle(ray)) * seen_at}, {y, y + std::sin(ray_angle(ray)) * seen_at}, vision_style);
         }
     }
 
-    scene.circle(x, y, AGENT_RADIUS, agent_color);
+    world.circle(x, y, AGENT_RADIUS, agent_style);
 
     // Clamped, so these show what the thrusters really did.
     const double up = std::max(0.0, output_vec[0]);
@@ -139,12 +152,12 @@ void FindFood::draw(sim::Scene& scene)
     const double left = std::max(0.0, output_vec[2]);
     const double right = std::max(0.0, output_vec[3]);
 
-    scene.line({x, x}, {y, y + up}, thrust_color);
-    scene.line({x, x}, {y, y - down}, thrust_color);
-    scene.line({x, x - left}, {y, y}, thrust_color);
-    scene.line({x, x + right}, {y, y}, thrust_color);
+    world.plot({x, x}, {y, y + up}, thrust_style);
+    world.plot({x, x}, {y, y - down}, thrust_style);
+    world.plot({x, x - left}, {y, y}, thrust_style);
+    world.plot({x, x + right}, {y, y}, thrust_style);
 
-    vision_graph.set(std::move(degrees), std::move(closeness));
+    vision_graph.graph().plot(degrees, closeness);
 
     eaten_field.set(static_cast<double>(total_eaten));
 }

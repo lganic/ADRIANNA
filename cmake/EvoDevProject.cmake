@@ -33,7 +33,7 @@ function(evodev_add_project name)
         target_compile_options(${name}_sim PRIVATE /W4 /permissive-)
     else()
         # Always optimized, even in Debug builds. See the note on codeepneat in the top level CMakeLists.
-        target_compile_options(${name}_sim PRIVATE -Wall -Wextra -Wpedantic -O2)
+        target_compile_options(${name}_sim PRIVATE -Wall -Wextra -Wpedantic -Wno-reorder -O2) # Reorder is for the Plotato headers.
     endif()
 
     add_executable(${name} ${CMAKE_SOURCE_DIR}/src/gui/src/main.cpp)

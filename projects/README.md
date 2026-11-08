@@ -46,10 +46,11 @@ public:
           speed(ui.add_slider({"Speed", 0, 10, 5, .1})) {}
 
     double time_step() const override { return .2; }
-    sim::Bounds world_bounds() const override { return {-2, 2, -2, 2}; }
+
+    void setup_world(plotato::Graph& graph) override { graph.set_bounds({-2, 2, -2, 2}); }
 
     void step(double t) override { score_graph.add(speed.value()); }
-    void draw(sim::Scene& scene) override { scene.circle(0, 0, 1, {0, 200, 0}); }
+    void draw(plotato::Graph& world) override { world.circle(0, 0, 1); }
 
 private:
     sim::HistoryGraph score_graph;
@@ -73,9 +74,21 @@ in the order they got added. The options say which page each one goes on (`sim::
 | Call | Handle | Use it for |
 | --- | --- | --- |
 | `add_history_graph` | `.add(value)` | A value over the whole run. Cheap enough for every step. |
-| `add_curve_graph` | `.set(x, y)` | A curve that gets replaced each time. Call it from `draw()`. |
+| `add_live_graph` | `.graph()` | A graph that gets drawn from scratch each frame. Use it from `draw()`. |
 | `add_field` | `.set(value)` | A number to show. |
 | `add_slider` | `.value()` | A number the user can drag. |
 | `add_entry` | `.value()` | A number the user can type. |
 
 Graphs always go under an expander. The handles are safe to use without thinking about threads.
+
+## Drawing
+
+Projects draw straight on Plotato graphs, so anything Plotato can draw is available.
+
+| Where | Runs | What goes there |
+| --- | --- | --- |
+| `draw(world)` and `live_graph.graph()` | Every frame, on a blank graph | Plots and text: `plot`, `scatter`, `polygon`, `circle`, `add_text`, `add_item` |
+| `setup_world(graph)` and `GraphOptions::setup` | Once, on the graph that is on screen | What stays the same: `set_bounds`, axes, titles, `legend`, `style` |
+
+Keep to those. `draw` runs on the simulation thread, on a graph that isn't the one on screen, so
+other changes to it (or calling its `draw()`) won't do what you'd want.

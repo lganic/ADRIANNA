@@ -12,11 +12,14 @@
 //
 // All the handles are safe to use from the project without thinking about threads.
 
+#include <sim/canvas.hpp>
+
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <deque>
-#include <optional>
+#include <functional>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -26,20 +29,16 @@ namespace sim {
 // The tabs that a project can put things on.
 enum class Page { World, Stats };
 
-struct Bounds {
-    double min_x = 0;
-    double max_x = 0;
-    double min_y = 0;
-    double max_y = 0;
-};
-
 struct GraphOptions {
     std::string title{}; // Goes on the expander that the graph sits under.
     std::string y_label{};
     Page page = Page::Stats;
     std::string x_label = "Simulated hours";
     bool expanded = true;
-    std::optional<Bounds> bounds{}; // Leave this out to fit the graph to the data.
+
+    // Runs once on the graph that goes on screen, for anything else that stays the same between
+    // frames, like bounds or a legend. Leave this out to fit the graph to the data.
+    std::function<void(plotato::Graph&)> setup{};
 };
 
 struct FieldOptions {
@@ -66,11 +65,10 @@ struct HistoryGraphState {
     double last = 0;
 };
 
-struct CurveGraphState {
+struct LiveGraphState {
     GraphOptions options;
 
-    std::vector<double> x{};
-    std::vector<double> y{};
+    std::unique_ptr<OffscreenCanvas> buffer{};
 };
 
 struct FieldState {
@@ -103,20 +101,16 @@ private:
     HistoryGraphState* state;
 };
 
-// A whole curve that gets replaced each time, like a snapshot of something happening right now.
-class CurveGraph {
+// A graph that gets drawn from scratch every frame, like a snapshot of something happening right now.
+class LiveGraph {
 public:
-    explicit CurveGraph(CurveGraphState& state) : state(&state) {}
+    explicit LiveGraph(LiveGraphState& state) : state(&state) {}
 
-    // Only the latest one gets shown, so the place to call this is from Project::draw().
-    void set(std::vector<double> x, std::vector<double> y)
-    {
-        state->x = std::move(x);
-        state->y = std::move(y);
-    }
+    // Only for use from Project::draw(), and with the same rules as the world graph that gets passed in there.
+    plotato::Graph& graph() { return *state->buffer; }
 
 private:
-    CurveGraphState* state;
+    LiveGraphState* state;
 };
 
 // A labelled number for the GUI to show.
@@ -146,7 +140,7 @@ private:
 class Ui {
 public:
     HistoryGraph add_history_graph(GraphOptions options);
-    CurveGraph add_curve_graph(GraphOptions options);
+    LiveGraph add_live_graph(GraphOptions options);
 
     Field add_field(FieldOptions options);
 
@@ -155,7 +149,10 @@ public:
 
     // The rest of this is for the framework, rather than for projects.
 
-    enum class ItemType { HistoryGraph, CurveGraph, Field, Slider, Entry };
+    // Make the graphs that projects draw on. Has to run on the GUI thread, after GTK is up.
+    void create_buffers();
+
+    enum class ItemType { HistoryGraph, LiveGraph, Field, Slider, Entry };
 
     struct Item {
         ItemType type;
@@ -166,9 +163,11 @@ public:
 
     // Deques, since the handles point in to these, so they can't move around.
     std::deque<HistoryGraphState> history_graphs;
-    std::deque<CurveGraphState> curve_graphs;
+    std::deque<LiveGraphState> live_graphs;
     std::deque<FieldState> fields;
     std::deque<ControlState> controls;
+
+    std::unique_ptr<OffscreenCanvas> world_buffer;
 };
 
 }
