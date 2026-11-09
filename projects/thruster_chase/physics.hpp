@@ -1,6 +1,8 @@
 #ifndef THRUSTER_CHASE_PHYSICS_HPP
 #define THRUSTER_CHASE_PHYSICS_HPP
 
+// Utility wrapper around box2d physics.
+
 #include <box2d/id.h>
 
 namespace thruster_chase {
