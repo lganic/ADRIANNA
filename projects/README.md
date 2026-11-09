@@ -6,6 +6,7 @@ Every folder in here is a task that the GUI gets compiled for. Each one builds t
 | --- | --- |
 | `chase_target` | An organism chasing a target around a circle. The port of `tests/test_3`. |
 | `find_food` | An agent with limited vision looking for food. |
+| `thruster_chase` | The goal of `chase_target`, but steering with a forward/backward thruster on each leg. |
 
 ## Compiling
 
