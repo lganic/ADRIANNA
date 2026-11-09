@@ -7,6 +7,8 @@ Every folder in here is a task that the GUI gets compiled for. Each one builds t
 | `chase_target` | An organism chasing a target around a circle. The port of `tests/test_3`. |
 | `find_food` | An agent with limited vision looking for food. |
 | `thruster_chase` | The goal of `chase_target`, but steering with a forward/backward thruster on each leg. |
+| `island_food` | The thruster organism going after food across a group of islands, with slow and costly water all around them. |
+| `memory_chase` | `chase_target`, but the dot gets angry, and an LSTM has to remember the warning for as long as it lasts. |
 
 ## Compiling
 
