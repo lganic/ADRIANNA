@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <exception>
 #include <memory>
 #include <string>
 #include <vector>
@@ -26,10 +27,28 @@ constexpr int GRAPH_MIN_HEIGHT = 180;
 
 constexpr int PAGE_SPACING = 6;
 
+// The size that a graph's export menu starts on.
+constexpr int EXPORT_DEFAULT_WIDTH = 1200;
+constexpr int EXPORT_DEFAULT_HEIGHT = 800;
+
+constexpr int EXPORT_MIN_SIZE = 200; // Any smaller and the axes don't leave any room for the graph.
+constexpr int EXPORT_MAX_SIZE = 16384; // Already about a gigabyte of image while it is being drawn.
+
+// The menu for saving a graph to an image, and what it needs to do that.
+struct GraphExportMenu {
+    sim::Canvas* graph = nullptr;
+    std::string title;
+
+    GtkPopover* popover = nullptr;
+    GtkSpinButton* width = nullptr;
+    GtkSpinButton* height = nullptr;
+};
+
 // A graph, and the expander that it sits under.
 struct GraphView {
     GtkExpander* expander = nullptr;
     std::unique_ptr<sim::Canvas> graph;
+    std::unique_ptr<GraphExportMenu> export_menu;
 };
 
 enum KeyDirection {
@@ -478,16 +497,166 @@ static void add_row(App& app, sim::Page page, const std::string& text, GtkWidget
     gtk_box_pack_start(page_box(app, page), row, FALSE, TRUE, 0);
 }
 
+// The graph's title, with anything that can't go in a file name taken out.
+static std::string export_file_name(const std::string& title)
+{
+    std::string name = title.empty() ? "graph" : title;
+
+    for (std::size_t i = name.find_first_of("<>:\"/\\|?*"); i != std::string::npos; i = name.find_first_of("<>:\"/\\|?*", i)) {
+        name[i] = '_';
+    }
+
+    return name + ".png";
+}
+
+// What gets written is a PNG no matter what the file is called, so make sure that the name says so.
+static std::string with_png_extension(std::string path)
+{
+    if (path.size() < 4 || g_ascii_strcasecmp(path.c_str() + path.size() - 4, ".png") != 0) {
+        path += ".png";
+    }
+
+    return path;
+}
+
+static void export_graph(GtkWindow* window, sim::Canvas& graph, const std::string& path, int width, int height)
+{
+    try {
+        graph.export_image(path, width, height);
+    }
+    catch (const std::exception& error) {
+        GtkWidget* dialog = gtk_message_dialog_new(
+            window, GTK_DIALOG_MODAL, GTK_MESSAGE_ERROR, GTK_BUTTONS_CLOSE,
+            "Couldn't save %s: %s", path.c_str(), error.what()
+        );
+
+        gtk_dialog_run(GTK_DIALOG(dialog));
+        gtk_widget_destroy(dialog);
+    }
+}
+
+static void on_export_save_clicked(GtkWidget* button, gpointer user_data)
+{
+    GraphExportMenu* menu = static_cast<GraphExportMenu*>(user_data);
+
+    // A number that has been typed in doesn't count until it is committed.
+    gtk_spin_button_update(menu->width);
+    gtk_spin_button_update(menu->height);
+
+    GtkWindow* window = GTK_WINDOW(gtk_widget_get_toplevel(button));
+
+    gtk_popover_popdown(menu->popover);
+
+    GtkFileChooserNative* native = gtk_file_chooser_native_new("Export graph", window, GTK_FILE_CHOOSER_ACTION_SAVE, "_Save", "_Cancel");
+    GtkFileChooser* chooser = GTK_FILE_CHOOSER(native);
+
+    GtkFileFilter* filter = gtk_file_filter_new();
+
+    gtk_file_filter_set_name(filter, "PNG image");
+    gtk_file_filter_add_pattern(filter, "*.png");
+
+    gtk_file_chooser_add_filter(chooser, filter);
+    gtk_file_chooser_set_do_overwrite_confirmation(chooser, TRUE);
+    gtk_file_chooser_set_current_name(chooser, export_file_name(menu->title).c_str());
+
+    if (gtk_native_dialog_run(GTK_NATIVE_DIALOG(native)) == GTK_RESPONSE_ACCEPT) {
+
+        gchar* path = gtk_file_chooser_get_filename(chooser);
+
+        export_graph(
+            window, *menu->graph, with_png_extension(path),
+            gtk_spin_button_get_value_as_int(menu->width),
+            gtk_spin_button_get_value_as_int(menu->height)
+        );
+
+        g_free(path);
+    }
+
+    g_object_unref(native);
+}
+
+static GtkSpinButton* make_export_size_entry(int value)
+{
+    GtkWidget* entry = gtk_spin_button_new_with_range(EXPORT_MIN_SIZE, EXPORT_MAX_SIZE, 1);
+
+    gtk_spin_button_set_numeric(GTK_SPIN_BUTTON(entry), TRUE);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(entry), value);
+
+    return GTK_SPIN_BUTTON(entry);
+}
+
+static void attach_export_row(GtkGrid* grid, int row, const char* text, GtkSpinButton* entry)
+{
+    GtkWidget* label = gtk_label_new(text);
+
+    gtk_label_set_xalign(GTK_LABEL(label), 0);
+
+    gtk_grid_attach(grid, label, 0, row, 1, 1);
+    gtk_grid_attach(grid, GTK_WIDGET(entry), 1, row, 1, 1);
+}
+
+// Put a button in the corner of a graph, for opening the menu that saves it to an image.
+static std::unique_ptr<GraphExportMenu> add_export_menu(GtkOverlay* overlay, sim::Canvas& graph, const std::string& title)
+{
+    auto menu = std::make_unique<GraphExportMenu>();
+
+    menu->graph = &graph;
+    menu->title = title;
+    menu->width = make_export_size_entry(EXPORT_DEFAULT_WIDTH);
+    menu->height = make_export_size_entry(EXPORT_DEFAULT_HEIGHT);
+
+    GtkWidget* save_button = gtk_button_new_with_label("Save to file...");
+
+    g_signal_connect(save_button, "clicked", G_CALLBACK(on_export_save_clicked), menu.get());
+
+    GtkWidget* grid = gtk_grid_new();
+
+    gtk_grid_set_row_spacing(GTK_GRID(grid), PAGE_SPACING);
+    gtk_grid_set_column_spacing(GTK_GRID(grid), PAGE_SPACING);
+    gtk_container_set_border_width(GTK_CONTAINER(grid), PAGE_SPACING);
+
+    attach_export_row(GTK_GRID(grid), 0, "Width", menu->width);
+    attach_export_row(GTK_GRID(grid), 1, "Height", menu->height);
+    gtk_grid_attach(GTK_GRID(grid), save_button, 0, 2, 2, 1);
+
+    gtk_widget_show_all(grid); // Popovers aren't reached by the show_all on the window.
+
+    GtkWidget* button = gtk_menu_button_new();
+
+    menu->popover = GTK_POPOVER(gtk_popover_new(button));
+
+    gtk_container_add(GTK_CONTAINER(menu->popover), grid);
+
+    // Left to itself, the first time it opens the focus lands on the save button. Then nothing is
+    // there to take what gets typed, and it all goes to the keyboard shortcuts on the window instead.
+    g_signal_connect_swapped(menu->popover, "show", G_CALLBACK(gtk_widget_grab_focus), menu->width);
+
+    gtk_menu_button_set_popover(GTK_MENU_BUTTON(button), GTK_WIDGET(menu->popover));
+    gtk_button_set_image(GTK_BUTTON(button), gtk_image_new_from_icon_name("document-save-symbolic", GTK_ICON_SIZE_MENU));
+
+    gtk_style_context_add_class(gtk_widget_get_style_context(button), "graph-export");
+    gtk_widget_set_tooltip_text(button, "Export this graph to an image");
+    gtk_widget_set_can_focus(button, FALSE);
+    gtk_widget_set_halign(button, GTK_ALIGN_END);
+    gtk_widget_set_valign(button, GTK_ALIGN_START);
+
+    gtk_overlay_add_overlay(overlay, button);
+
+    return menu;
+}
+
 static GraphView add_graph(App& app, const sim::GraphOptions& options)
 {
     GtkWidget* expander = gtk_expander_new(options.title.c_str());
+    GtkWidget* overlay = gtk_overlay_new();
     GtkWidget* area = gtk_drawing_area_new();
 
     gtk_widget_set_size_request(area, -1, GRAPH_MIN_HEIGHT);
     gtk_widget_set_hexpand(area, TRUE);
     gtk_widget_set_vexpand(area, TRUE);
 
-    gtk_container_add(GTK_CONTAINER(expander), area);
+    gtk_container_add(GTK_CONTAINER(overlay), area);
+    gtk_container_add(GTK_CONTAINER(expander), overlay);
 
     gtk_expander_set_expanded(GTK_EXPANDER(expander), options.expanded);
     gtk_expander_set_resize_toplevel(GTK_EXPANDER(expander), TRUE);
@@ -515,6 +684,8 @@ static GraphView add_graph(App& app, const sim::GraphOptions& options)
     if (options.setup) {
         options.setup(*view.graph);
     }
+
+    view.export_menu = add_export_menu(GTK_OVERLAY(overlay), *view.graph, options.title);
 
     return view;
 }

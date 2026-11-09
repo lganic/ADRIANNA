@@ -3,3 +3,10 @@ stackswitcher button.text-button {
     padding-left: 6px;
     padding-right: 6px;
 }
+
+/* Small enough to fit in the empty margin in the corner of a graph, clear of the plot itself. */
+button.graph-export {
+    min-width: 0;
+    min-height: 0;
+    padding: 2px;
+}
