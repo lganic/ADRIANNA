@@ -1,6 +1,7 @@
 #include <gui/app.hpp>
 
 #include <gtk/gtk.h>
+#include <gdk/gdkkeysyms.h>
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -31,6 +32,121 @@ struct GraphView {
     std::unique_ptr<sim::Canvas> graph;
 };
 
+enum KeyDirection {
+    UP,
+    DOWN,
+    LEFT,
+    RIGHT,
+    ZOOMIN,
+    ZOOMOUT
+};
+
+class ViewboxController {
+
+    public:
+        ViewboxController() = default;
+        ViewboxController(plotato::GraphBounds initial_bounds): bounds(initial_bounds) {}
+
+        void set_input(KeyDirection dir, bool pressed, bool keyboard) {
+            if (keyboard)
+                keys[dir] = pressed;
+            else
+                mouse[dir] = pressed;
+
+            // Make keyboard input visually press the GTK button. (Purely decorative)
+            if (keyboard) {
+                if (pressed)
+                    gtk_widget_set_state_flags(
+                        buttons[dir], GTK_STATE_FLAG_ACTIVE, FALSE);
+                else
+                    gtk_widget_unset_state_flags(
+                        buttons[dir], GTK_STATE_FLAG_ACTIVE);
+            }
+        }
+
+        static gboolean on_timeout_static(gpointer user_data) {
+            ViewboxController* self = static_cast<ViewboxController*>(user_data);
+            return self->update_movement(); // Delegate to instance method
+        }
+
+        plotato::GraphBounds bounds;
+        GtkWidget* buttons[6]; // Tracks each button.
+    private:
+
+        bool keys[6] = {}; // Key pressed for object.
+        bool mouse[6] = {}; // Mouse pressed for object (via gui button)
+
+        gint64 last_update = 0;
+
+        double move_speed = 0.5;
+        double zoom_speed = 0.5;
+
+        bool active(KeyDirection dir) const {
+            return keys[dir] || mouse[dir];
+        }
+
+        void translate(double x, double y, double z, double dt) {
+
+            // Figure out the current ranges.
+            double x_range = bounds.xmax - bounds.xmin;
+            double y_range = bounds.ymax - bounds.ymin;
+
+            double offset;
+
+            if (x != 0) { // Nothing should happen at zero. Check if zero for optimization / stability purposes.
+                // Apply X update.
+                offset = x * x_range * move_speed * dt;
+                bounds.xmin += offset;
+                bounds.xmax += offset;
+            }
+            
+            if (y != 0) { // Nothing should happen at zero. Check if zero for optimization / stability purposes.
+                // Apply Y update.
+                offset = y * y_range * move_speed * dt;
+                bounds.ymin += offset;
+                bounds.ymax += offset;
+            }
+
+            if (z != 0) { // Nothing should happen at zero. Check if zero for optimization / stability purposes.
+                // Apply Zoom update
+                std::pair<double, double> center = bounds.get_center();
+                // Expand around center
+                double x_inc_amount = z * x_range * zoom_speed * dt;
+                double y_inc_amount = z * y_range * zoom_speed * dt;
+        
+                bounds.xmin = center.first - (x_range / 2) + x_inc_amount;
+                bounds.xmax = center.first + (x_range / 2) - x_inc_amount;
+
+                bounds.ymin = center.second - (y_range / 2) + y_inc_amount;
+                bounds.ymax = center.second + (y_range / 2) - y_inc_amount;
+            }
+        }
+
+        // Called approximately 60 times per second.
+        gboolean update_movement() {
+
+            gint64 now = g_get_monotonic_time();
+
+            double dt = last_update == 0 ? 0.0 : (now - last_update) / 1000000.0;
+            last_update = now;
+
+            double x_del = 0;
+            double y_del = 0;
+            double z_del = 0;
+
+            if (active(UP)) y_del += 1;
+            if (active(DOWN)) y_del -= 1;
+            if (active(LEFT)) x_del -= 1;
+            if (active(RIGHT)) x_del += 1;
+            if (active(ZOOMIN)) z_del += 1;
+            if (active(ZOOMOUT)) z_del -= 1;
+
+            translate(x_del, y_del, z_del, dt);
+
+            return G_SOURCE_CONTINUE;
+        }
+};
+
 // Everything that the GTK callbacks need. All of this belongs to the GUI thread, other than sim,
 // which is the one thing that is safe to talk to from here.
 struct App {
@@ -51,25 +167,79 @@ struct App {
     GtkBox* stats_page = nullptr;
     GtkSizeGroup* row_labels = nullptr;
 
+    // Button viewport controls
+    GtkButton* up_button;
+    GtkButton* down_button;
+    GtkButton* left_button;
+    GtkButton* right_button;
+    GtkButton* zoom_in_button;
+    GtkButton* zoom_out_button;
+
     GtkLabel* status_label = nullptr;
     GtkToggleButton* fast_forward_button = nullptr;
 
     sim::SimFrame frame;
     sim::SimHistory history;
 
+    ViewboxController viewbox_controller;
+
     gint64 stats_updated_at = 0;
     uint64_t stats_updated_steps = 0;
 
+    guint movement_timer = 0;
     guint frame_timer = 0;
 };
 
 static void on_window_close(GtkWidget*, gpointer user_data)
 {
+
+    App* app = static_cast<App*>(user_data);
+
     // This has to stop here, since the widgets that it draws to are on their way out.
-    g_source_remove(static_cast<App*>(user_data)->frame_timer);
+    if (app->frame_timer)
+        g_source_remove(app->frame_timer);
+
+    if (app->movement_timer)
+        g_source_remove(app->movement_timer);
 
     gtk_main_quit();
 }
+
+// Mouse input
+struct ButtonBinding {
+    ViewboxController* controller;
+    KeyDirection direction;
+};
+
+gboolean on_translate_button_press(GtkWidget*, GdkEventButton* event,
+                        gpointer data) {
+    if (event->button != 1) return FALSE;
+
+    auto* b = static_cast<ButtonBinding*>(data);
+    b->controller->set_input(b->direction, true, false);
+    return FALSE;
+}
+
+gboolean on_translate_button_release(GtkWidget*, GdkEventButton* event,
+                          gpointer data) {
+    if (event->button != 1) return FALSE;
+
+    auto* b = static_cast<ButtonBinding*>(data);
+    b->controller->set_input(b->direction, false, false);
+    return FALSE;
+}
+
+// Prevent stuck movement if the window loses focus.
+// gboolean on_focus_out(GtkWidget*, GdkEventFocus*,
+//                       gpointer data) {
+//     auto* c = static_cast<ViewboxController*>(data);
+
+//     for (int i = 0; i < 6; ++i) {
+//         c->set_input(static_cast<KeyDirection>(i), false, true);
+//         c->set_input(static_cast<KeyDirection>(i), false, false);
+//     }
+//     return FALSE;
+// }
 
 // Put a finished frame on screen. It all lands at once, so that a half drawn one never shows.
 static void show_frame(sim::Canvas& canvas, sim::PlotContents& contents)
@@ -142,6 +312,7 @@ static gboolean on_frame_timer(gpointer user_data)
     App* app = static_cast<App*>(user_data);
 
     if (app->sim.take_frame(app->frame)) {
+        app->world_graph->set_bounds(app->viewbox_controller.bounds);
         show_frame(*app->world_graph, app->frame.world);
         draw_live_graphs(*app);
     }
@@ -170,6 +341,7 @@ static void on_fast_forward_toggled(GtkToggleButton* button, gpointer user_data)
 
 static gboolean on_key_press(GtkWidget*, GdkEventKey* event, gpointer user_data)
 {
+
     App* app = static_cast<App*>(user_data);
 
     switch (gdk_keyval_to_lower(event->keyval)) {
@@ -185,6 +357,30 @@ static gboolean on_key_press(GtkWidget*, GdkEventKey* event, gpointer user_data)
         app->sim.set_peek(true);
         return TRUE;
 
+    case GDK_KEY_Up:
+        app->viewbox_controller.set_input(UP, true, true);
+        return TRUE;
+
+    case GDK_KEY_Down:
+        app->viewbox_controller.set_input(DOWN, true, true);
+        return TRUE;
+
+    case GDK_KEY_Left:
+        app->viewbox_controller.set_input(LEFT, true, true);
+        return TRUE;
+
+    case GDK_KEY_Right:
+        app->viewbox_controller.set_input(RIGHT, true, true);
+        return TRUE;
+
+    case GDK_KEY_plus:
+        app->viewbox_controller.set_input(ZOOMIN, true, true);
+        return TRUE;
+
+    case GDK_KEY_minus:
+        app->viewbox_controller.set_input(ZOOMOUT, true, true);
+        return TRUE;
+
     default:
         return FALSE;
     }
@@ -192,20 +388,58 @@ static gboolean on_key_press(GtkWidget*, GdkEventKey* event, gpointer user_data)
 
 static gboolean on_key_release(GtkWidget*, GdkEventKey* event, gpointer user_data)
 {
-    if (gdk_keyval_to_lower(event->keyval) != GDK_KEY_v) {
+
+    App* app = static_cast<App*>(user_data);
+
+    switch (gdk_keyval_to_lower(event->keyval)) {
+
+    case GDK_KEY_v:
+        app->sim.set_peek(false);
+        return TRUE;
+
+    case GDK_KEY_Up:
+        app->viewbox_controller.set_input(UP, false, true);
+        return TRUE;
+
+    case GDK_KEY_Down:
+        app->viewbox_controller.set_input(DOWN, false, true);
+        return TRUE;
+
+    case GDK_KEY_Left:
+        app->viewbox_controller.set_input(LEFT, false, true);
+        return TRUE;
+
+    case GDK_KEY_Right:
+        app->viewbox_controller.set_input(RIGHT, false, true);
+        return TRUE;
+
+    case GDK_KEY_plus:
+    case GDK_KEY_equal:
+    case GDK_KEY_KP_Add:
+        app->viewbox_controller.set_input(ZOOMIN, false, true);
+        return TRUE;
+
+    case GDK_KEY_minus:
+    case GDK_KEY_KP_Subtract:
+        app->viewbox_controller.set_input(ZOOMOUT, false, true);
+        return TRUE;
+
+    default:
         return FALSE;
     }
-
-    static_cast<App*>(user_data)->sim.set_peek(false);
-
-    return TRUE;
 }
 
-// If the window loses focus while V is held, the key release never arrives here.
 static gboolean on_focus_out(GtkWidget*, GdkEventFocus*, gpointer user_data)
 {
-    static_cast<App*>(user_data)->sim.set_peek(false);
+    App* app = static_cast<App*>(user_data);
 
+    app->sim.set_peek(false);
+
+    // Prevent held input while focus is lost
+    for (int i = 0; i < 6; ++i) {
+        app->viewbox_controller.set_input(static_cast<KeyDirection>(i), false, true);
+        app->viewbox_controller.set_input(static_cast<KeyDirection>(i), false, false);
+    }
     return FALSE;
 }
 
@@ -413,6 +647,67 @@ int run(int argc, char* argv[], const char* title, uint64_t seed)
     app.world_graph = std::make_unique<sim::Canvas>(world_area, world_style);
 
     project->setup_world(*app.world_graph);
+
+    app.viewbox_controller = ViewboxController(app.world_graph->get_manual_bounds());
+
+    app.left_button = find_button(builder, "t-left");
+    app.right_button = find_button(builder, "t-right");
+    app.up_button = find_button(builder, "t-up");
+    app.down_button = find_button(builder, "t-down");
+
+    app.zoom_in_button = find_button(builder, "z-in");
+    app.zoom_out_button = find_button(builder, "z-out");
+
+    app.viewbox_controller.buttons[0] = GTK_WIDGET(app.up_button);
+    app.viewbox_controller.buttons[1] = GTK_WIDGET(app.down_button);
+    app.viewbox_controller.buttons[2] = GTK_WIDGET(app.left_button);
+    app.viewbox_controller.buttons[3] = GTK_WIDGET(app.right_button);
+    app.viewbox_controller.buttons[4] = GTK_WIDGET(app.zoom_in_button);
+    app.viewbox_controller.buttons[5] = GTK_WIDGET(app.zoom_out_button);
+
+    gtk_widget_set_can_focus(GTK_WIDGET(app.up_button), FALSE);
+    gtk_widget_set_can_focus(GTK_WIDGET(app.down_button), FALSE);
+    gtk_widget_set_can_focus(GTK_WIDGET(app.left_button), FALSE);
+    gtk_widget_set_can_focus(GTK_WIDGET(app.right_button), FALSE);
+    gtk_widget_set_can_focus(GTK_WIDGET(app.zoom_in_button), FALSE);
+    gtk_widget_set_can_focus(GTK_WIDGET(app.zoom_out_button), FALSE);
+
+    // Bind each of the translate buttons
+    // Left
+    ButtonBinding left_binding {&app.viewbox_controller, KeyDirection::LEFT};
+    g_signal_connect(app.left_button, "button-press-event", G_CALLBACK(on_translate_button_press), &left_binding);
+    g_signal_connect(app.left_button, "button-release-event", G_CALLBACK(on_translate_button_release), &left_binding);
+
+    // Right
+    ButtonBinding right_binding {&app.viewbox_controller, KeyDirection::RIGHT};
+    g_signal_connect(app.right_button, "button-press-event", G_CALLBACK(on_translate_button_press), &right_binding);
+    g_signal_connect(app.right_button, "button-release-event", G_CALLBACK(on_translate_button_release), &right_binding);
+
+    // Up
+    ButtonBinding up_binding {&app.viewbox_controller, KeyDirection::UP};
+    g_signal_connect(app.up_button, "button-press-event", G_CALLBACK(on_translate_button_press), &up_binding);
+    g_signal_connect(app.up_button, "button-release-event", G_CALLBACK(on_translate_button_release), &up_binding);
+
+    // Down
+    ButtonBinding down_binding {&app.viewbox_controller, KeyDirection::DOWN};
+    g_signal_connect(app.down_button, "button-press-event", G_CALLBACK(on_translate_button_press), &down_binding);
+    g_signal_connect(app.down_button, "button-release-event", G_CALLBACK(on_translate_button_release), &down_binding);
+
+    // Zoom In
+    ButtonBinding zoom_in_binding {&app.viewbox_controller, KeyDirection::ZOOMIN};
+    g_signal_connect(app.zoom_in_button, "button-press-event", G_CALLBACK(on_translate_button_press), &zoom_in_binding);
+    g_signal_connect(app.zoom_in_button, "button-release-event", G_CALLBACK(on_translate_button_release), &zoom_in_binding);
+
+    // Zoom Out
+    ButtonBinding zoom_out_binding {&app.viewbox_controller, KeyDirection::ZOOMOUT};
+    g_signal_connect(app.zoom_out_button, "button-press-event", G_CALLBACK(on_translate_button_press), &zoom_out_binding);
+    g_signal_connect(app.zoom_out_button, "button-release-event", G_CALLBACK(on_translate_button_release), &zoom_out_binding);
+
+    app.movement_timer = g_timeout_add(
+        16,
+        ViewboxController::on_timeout_static,
+        &app.viewbox_controller
+    );
 
     gtk_stack_set_visible_child_name(GTK_STACK(gtk_builder_get_object(builder, "detailstack")), "Stats");
 
