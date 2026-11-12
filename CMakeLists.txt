@@ -22,7 +22,7 @@ add_subdirectory(src/cdn)
 # This is the hot loop of fast forward, which runs about 6x faster optimized. So it stays optimized
 # even in Debug builds, while the GUI code keeps the normal debug settings.
 if(NOT MSVC)
-    target_compile_options(codeepneat PRIVATE -O2)
+    target_compile_options(codeepneat PRIVATE -O3 -march=native -fno-math-errno -fno-signed-zeros -fno-trapping-math -fassociative-math)
 endif()
 
 # Builds Box2D. Same deal as CDN above, since every physics step of fast forward goes through it.
