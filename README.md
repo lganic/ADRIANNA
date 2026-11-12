@@ -27,6 +27,16 @@ The thruster body from `thruster_chase` goes after food across a much bigger wor
 
 `chase_target`, except that the dot sometimes gets angry, and then being close to it is what gets punished. The organism can't see the mood of the dot. All it gets is a warning for the second before each change, so it has to remember the last warning for as long as the mood lasts. An LSTM actor-critic trains across 16 copies of the world at once (the first one is what gets drawn), and the angry spells slowly get longer to find out how long it can keep that up.
 
+### `island_evolution`
+
+`island_food` with 40 islands instead of 5, and a whole population instead of one organism. Each agent has an energy bar, which food fills up, and which living and thrusting use up. Once it runs out, the agent dies. Food grows back at a set rate, so the population settles at however many the islands can feed.
+
+An agent with enough energy can reproduce, but it has to commit to it. Its network has a third output for how hard it is trying, which builds up progress towards a child at `dt * effort`, while slowing it down by up to 95%. Letting up loses the progress again, slowly. A child costs a set amount of energy, and gets 80% of it. It also gets its parent's network, put through the same mutations as CoDeepNEAT (new layers, new connections, new module species, layer sizes, activations, and the learning rate), along with whatever weights still fit. Every agent learns for itself as it goes, with its own actor-critic, and there is no selection apart from who lives long enough to have children. If everybody dies, the agent that ate the most over its life gets a child of its own to start over.
+
+The founders are all the same: one small layer, with a skip around it. The panel on the World tab draws the network of the agent with the most children.
+
+The agents are split between a fixed set of pools, one per core, each with a thread of its own, and a new agent joins whichever pool has the fewest. Sensing, running and training the networks, and scoring all happen in the pools at once, and a thread that finishes its own pool early helps with what is left of the others. The physics, eating, births, and deaths stay on the main thread, in order of id, so a run comes out exactly the same however many threads it has. On a 12 core Ryzen, that runs 2.7 to 4 times as fast as one thread.
+
 ## Installing the tools (MSYS2)
 
 The build uses GCC, CMake, Ninja, and GTK3 from the MSYS2 **UCRT64** environment.
@@ -111,7 +121,7 @@ cmake --build --preset msys2-ucrt64 --target chase_target
 ./build/chase_target.exe
 ```
 
-The targets are `chase_target`, `find_food`, `thruster_chase`, `island_food`, and `memory_chase`. To build all of them at once, leave off the target:
+The targets are `chase_target`, `find_food`, `thruster_chase`, `island_food`, `memory_chase`, and `island_evolution`. To build all of them at once, leave off the target:
 
 ```bash
 cmake --build --preset msys2-ucrt64
@@ -147,8 +157,13 @@ These work in the window of every project:
 | `F` | Fast forward |
 | `S` | Back to real time |
 | Hold `V` | Watch in real time while fast forwarding |
+| `Space` | Pause, and carry on again |
+| `N` | Run one step, pausing first if it is running. Hold it to keep stepping |
+| `[` / `]` | Slow motion: slower and faster, down to 1/32 of real time |
 | Arrow keys | Move the view |
 | `+` / `-` | Zoom in and out |
+
+Pausing holds everything, fast forward included, and the view can still be moved and zoomed while it is paused. Pausing out of fast forward shows the exact step it stopped on, instead of the last frame that fast forward happened to show. Slow motion only spaces out the steps, which stay the same size, so it doesn't change what the simulation does. It applies whenever it is not fast forwarding, including while holding `V`.
 
 ## Python prototypes
 
