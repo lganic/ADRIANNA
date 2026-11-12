@@ -32,7 +32,7 @@ constexpr double FOOD_RADIUS = 1;
 // Makes the drawing fit the collider exactly.
 constexpr double ORGANISM_SIZE = ORGANISM_RADIUS / DRAWING_RADIUS;
 
-constexpr double DT = 0.5;
+constexpr double DT = 0.2;
 
 constexpr double WALL_SENSE_RANGE = 15; // Islands are kept further than this from the walls, so no island can see one.
 constexpr double FOOD_SCALE = 10;
