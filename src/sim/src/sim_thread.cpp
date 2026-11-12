@@ -34,6 +34,7 @@ void SimThread::start()
 void SimThread::stop()
 {
     stop_requested = true;
+    notify_control_change(); // It might be paused, or partway through a long slow motion frame.
 
     if (thread.joinable()) {
         thread.join();
@@ -43,11 +44,69 @@ void SimThread::stop()
 void SimThread::set_fast_forward(bool enabled)
 {
     fast_forward = enabled;
+    notify_control_change();
 }
 
 void SimThread::set_peek(bool held)
 {
     peek = held;
+    notify_control_change();
+}
+
+void SimThread::set_paused(bool paused_now)
+{
+    paused = paused_now;
+
+    if (!paused_now) {
+        step_requested = false; // Otherwise one left over would go off the next time it pauses.
+    }
+
+    notify_control_change();
+}
+
+void SimThread::step_once()
+{
+    if (!paused.load()) {
+        return;
+    }
+
+    step_requested = true;
+    notify_control_change();
+}
+
+void SimThread::set_speed(double fraction)
+{
+    if (!(fraction > 0)) {
+        return; // Zero would be a frame that never ends. That's what pausing is for.
+    }
+
+    speed = fraction;
+    notify_control_change();
+}
+
+void SimThread::notify_control_change()
+{
+    {
+        std::lock_guard<std::mutex> lock(control_mutex);
+
+        control_changes++;
+    }
+
+    control_changed.notify_all();
+}
+
+void SimThread::wait_for_control_change(uint64_t seen)
+{
+    std::unique_lock<std::mutex> lock(control_mutex);
+
+    control_changed.wait(lock, [&] { return control_changes.load() != seen; });
+}
+
+bool SimThread::wait_for_control_change(uint64_t seen, clock::time_point deadline)
+{
+    std::unique_lock<std::mutex> lock(control_mutex);
+
+    return control_changed.wait_until(lock, deadline, [&] { return control_changes.load() != seen; });
 }
 
 bool SimThread::take_frame(SimFrame& out)
@@ -160,28 +219,50 @@ bool SimThread::publish_history_point(double hours)
 
 void SimThread::run()
 {
-    using clock = std::chrono::steady_clock;
-
-    const auto frame_time = std::chrono::duration_cast<clock::duration>(std::chrono::duration<double>(1.0 / FPS));
+    const auto fast_frame_time = std::chrono::duration_cast<clock::duration>(std::chrono::duration<double>(1.0 / FAST_FPS));
 
     const double time_step = project.time_step();
 
     double t = 0;
     uint64_t steps = 0;
 
-    double displayed_at = -99999;
-
     double bin_width = HISTORY_START_BIN_WIDTH;
     double bin_start = 0;
 
     clock::time_point next_frame = clock::now();
+    clock::time_point published_at = clock::now() - fast_frame_time; // So the first step always shows.
+
+    bool shown = true; // Whether the latest step has been published. Nothing to show before the first.
 
     while (!stop_requested.load(std::memory_order_relaxed)) {
+
+        // Read before any of the controls, so that a change from here on cuts short the waits below.
+        const uint64_t seen = control_changes.load();
+
+        if (paused.load()) {
+
+            // Fast forward only publishes now and then, so the step that it stopped on might not be up yet.
+            if (!shown) {
+                publish_frame(t, steps);
+                shown = true;
+            }
+
+            if (!step_requested.exchange(false)) {
+                wait_for_control_change(seen);
+
+                next_frame = clock::now(); // So that if this was unpausing, the first frame back gets its full time.
+                continue;
+            }
+
+            // Otherwise this is a single step. It goes through the same as any other, history and all.
+        }
 
         t += time_step;
 
         project.step(t);
         steps++;
+
+        shown = false;
 
         if (t - bin_start >= bin_width) {
 
@@ -194,32 +275,46 @@ void SimThread::run()
             bin_start = t;
         }
 
-        const bool fast = fast_forward.load(std::memory_order_relaxed) && !peek.load(std::memory_order_relaxed);
-        const double display_after = fast ? FAST : -1;
+        if (paused.load()) {
+            publish_frame(t, steps); // Every single step shows, since that's the whole point of asking for one.
+            shown = true;
 
-        if (t - displayed_at < display_after) {
             continue;
         }
 
-        displayed_at = t;
-
-        publish_frame(t, steps);
+        const bool fast = fast_forward.load(std::memory_order_relaxed) && !peek.load(std::memory_order_relaxed);
 
         if (fast) {
-            continue; // Fast forward never waits for anything.
+            // Fast forward never waits for anything. It only stops to publish when a frame is due.
+            const clock::time_point now = clock::now();
+
+            if (now - published_at >= fast_frame_time) {
+                published_at = now;
+
+                publish_frame(t, steps);
+                shown = true;
+            }
+
+            continue;
         }
 
-        // Otherwise hold the frame rate. Going by a deadline instead of sleeping for a fixed time
-        // means that the sleep overshooting (which it does a lot on Windows) evens back out.
-        next_frame += frame_time;
+        publish_frame(t, steps);
+        shown = true;
+
+        // Otherwise hold the frame rate, slowed down by however much slow motion asks for. Going by
+        // a deadline instead of sleeping for a fixed time means that the sleep overshooting (which
+        // it does a lot on Windows) evens back out.
+        next_frame += std::chrono::duration_cast<clock::duration>(std::chrono::duration<double>(1.0 / (FPS * speed.load())));
 
         const clock::time_point now = clock::now();
 
         if (next_frame < now) {
             next_frame = now; // We fell behind, or just left fast forward. Don't sprint to catch up.
         }
-        else {
-            std::this_thread::sleep_until(next_frame);
+        else if (wait_for_control_change(seen, next_frame)) {
+            // Something changed partway through the frame, so go again from now. Waiting out the
+            // rest of it would hold up a pause, or the jump from a slow speed up to a faster one.
+            next_frame = clock::now();
         }
     }
 }

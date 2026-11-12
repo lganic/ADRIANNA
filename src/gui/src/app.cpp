@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstdio>
 #include <exception>
+#include <iterator>
 #include <memory>
 #include <string>
 #include <vector>
@@ -33,6 +34,24 @@ constexpr int EXPORT_DEFAULT_HEIGHT = 800;
 
 constexpr int EXPORT_MIN_SIZE = 200; // Any smaller and the axes don't leave any room for the graph.
 constexpr int EXPORT_MAX_SIZE = 16384; // Already about a gigabyte of image while it is being drawn.
+
+struct SpeedOption {
+    double fraction; // Of real time.
+    const char* label;
+};
+
+// The slow motion speeds, in the order the speed menu lists them. Real time is one step per frame,
+// so the slowest comes to about one step a second.
+constexpr SpeedOption SPEEDS[] = {
+    {1, "Real time"},
+    {1.0 / 2, "1/2 speed"},
+    {1.0 / 4, "1/4 speed"},
+    {1.0 / 8, "1/8 speed"},
+    {1.0 / 16, "1/16 speed"},
+    {1.0 / 32, "1/32 speed"},
+};
+
+constexpr int SPEED_COUNT = static_cast<int>(std::size(SPEEDS));
 
 // The menu for saving a graph to an image, and what it needs to do that.
 struct GraphExportMenu {
@@ -88,12 +107,21 @@ class ViewboxController {
             return self->update_movement(); // Delegate to instance method
         }
 
+        // Whether the view has moved since the last time this was called.
+        bool take_moved() {
+            const bool was_moved = moved;
+            moved = false;
+            return was_moved;
+        }
+
         plotato::GraphBounds bounds;
         GtkWidget* buttons[6]; // Tracks each button.
     private:
 
         bool keys[6] = {}; // Key pressed for object.
         bool mouse[6] = {}; // Mouse pressed for object (via gui button)
+
+        bool moved = false;
 
         gint64 last_update = 0;
 
@@ -105,6 +133,10 @@ class ViewboxController {
         }
 
         void translate(double x, double y, double z, double dt) {
+
+            if (x != 0 || y != 0 || z != 0) {
+                moved = true;
+            }
 
             // Figure out the current ranges.
             double x_range = bounds.xmax - bounds.xmin;
@@ -196,6 +228,10 @@ struct App {
 
     GtkLabel* status_label = nullptr;
     GtkToggleButton* fast_forward_button = nullptr;
+    GtkToggleButton* pause_button = nullptr;
+    GtkComboBoxText* speed_menu = nullptr;
+
+    bool pause_key_held = false; // Holding a key repeats it, which would flick between paused and not.
 
     sim::SimFrame frame;
     sim::SimHistory history;
@@ -290,14 +326,28 @@ static void draw_history(App& app)
     }
 }
 
+static bool is_paused(const App& app)
+{
+    return gtk_toggle_button_get_active(app.pause_button);
+}
+
 static void update_status(App& app, gint64 now)
 {
-    const double elapsed = (now - app.stats_updated_at) / 1e6;
-    const double steps_per_second = (app.frame.steps - app.stats_updated_steps) / elapsed;
-
     char status[128];
 
-    std::snprintf(status, sizeof(status), "%.2f hours    %.0f steps/s", app.frame.t / 3600, steps_per_second);
+    if (is_paused(app)) {
+        // Steps/s would just be 0. The step count is what moves when stepping one at a time.
+        std::snprintf(
+            status, sizeof(status), "%.2f hours    step %llu    paused",
+            app.frame.t / 3600, static_cast<unsigned long long>(app.frame.steps)
+        );
+    }
+    else {
+        const double elapsed = (now - app.stats_updated_at) / 1e6;
+        const double steps_per_second = (app.frame.steps - app.stats_updated_steps) / elapsed;
+
+        std::snprintf(status, sizeof(status), "%.2f hours    %.0f steps/s", app.frame.t / 3600, steps_per_second);
+    }
 
     gtk_label_set_text(app.status_label, status);
 
@@ -330,15 +380,25 @@ static gboolean on_frame_timer(gpointer user_data)
 {
     App* app = static_cast<App*>(user_data);
 
-    if (app->sim.take_frame(app->frame)) {
+    const bool new_frame = app->sim.take_frame(app->frame);
+    const bool moved = app->viewbox_controller.take_moved();
+
+    if (new_frame) {
         app->world_graph->set_bounds(app->viewbox_controller.bounds);
         show_frame(*app->world_graph, app->frame.world);
         draw_live_graphs(*app);
     }
+    else if (moved) {
+        // No new frame, which is all the time while paused, and most of it in slow motion. The view
+        // still has to keep up with the arrow keys, so the frame that is already up gets drawn again.
+        app->world_graph->set_bounds(app->viewbox_controller.bounds);
+        app->world_graph->draw();
+    }
 
     const gint64 now = g_get_monotonic_time();
 
-    if (now - app->stats_updated_at >= STATS_INTERVAL_US) {
+    // While paused, a new frame is a step that was asked for, so its numbers show straight away.
+    if (now - app->stats_updated_at >= STATS_INTERVAL_US || (new_frame && is_paused(*app))) {
 
         update_status(*app, now);
         update_fields(*app);
@@ -358,6 +418,45 @@ static void on_fast_forward_toggled(GtkToggleButton* button, gpointer user_data)
     static_cast<App*>(user_data)->sim.set_fast_forward(gtk_toggle_button_get_active(button));
 }
 
+static void on_pause_toggled(GtkToggleButton* button, gpointer user_data)
+{
+    App* app = static_cast<App*>(user_data);
+
+    app->sim.set_paused(gtk_toggle_button_get_active(button));
+
+    update_status(*app, g_get_monotonic_time()); // Straight away, not up to a quarter of a second later.
+}
+
+// Pause if it is running, then run one step.
+static void step_once(App& app)
+{
+    gtk_toggle_button_set_active(app.pause_button, TRUE);
+
+    app.sim.step_once();
+}
+
+static void on_step_clicked(GtkButton*, gpointer user_data)
+{
+    step_once(*static_cast<App*>(user_data));
+}
+
+static void on_speed_changed(GtkComboBox* menu, gpointer user_data)
+{
+    const int index = gtk_combo_box_get_active(menu);
+
+    if (index >= 0 && index < SPEED_COUNT) {
+        static_cast<App*>(user_data)->sim.set_speed(SPEEDS[index].fraction);
+    }
+}
+
+// Move along the speed menu. Positive is slower, since the speeds go down the menu from real time.
+static void change_speed(App& app, int by)
+{
+    GtkComboBox* menu = GTK_COMBO_BOX(app.speed_menu);
+
+    gtk_combo_box_set_active(menu, std::clamp(gtk_combo_box_get_active(menu) + by, 0, SPEED_COUNT - 1));
+}
+
 static gboolean on_key_press(GtkWidget*, GdkEventKey* event, gpointer user_data)
 {
 
@@ -374,6 +473,26 @@ static gboolean on_key_press(GtkWidget*, GdkEventKey* event, gpointer user_data)
 
     case GDK_KEY_v:
         app->sim.set_peek(true);
+        return TRUE;
+
+    case GDK_KEY_space:
+        if (!app->pause_key_held) {
+            app->pause_key_held = true;
+
+            gtk_toggle_button_set_active(app->pause_button, !is_paused(*app));
+        }
+        return TRUE;
+
+    case GDK_KEY_n:
+        step_once(*app); // This one is meant to repeat, so holding it keeps stepping.
+        return TRUE;
+
+    case GDK_KEY_bracketleft:
+        change_speed(*app, 1);
+        return TRUE;
+
+    case GDK_KEY_bracketright:
+        change_speed(*app, -1);
         return TRUE;
 
     case GDK_KEY_Up:
@@ -416,6 +535,10 @@ static gboolean on_key_release(GtkWidget*, GdkEventKey* event, gpointer user_dat
         app->sim.set_peek(false);
         return TRUE;
 
+    case GDK_KEY_space:
+        app->pause_key_held = false;
+        return TRUE;
+
     case GDK_KEY_Up:
         app->viewbox_controller.set_input(UP, false, true);
         return TRUE;
@@ -453,6 +576,7 @@ static gboolean on_focus_out(GtkWidget*, GdkEventFocus*, gpointer user_data)
     App* app = static_cast<App*>(user_data);
 
     app->sim.set_peek(false);
+    app->pause_key_held = false; // Its release goes somewhere else.
 
     // Prevent held input while focus is lost
     for (int i = 0; i < 6; ++i) {
@@ -806,7 +930,18 @@ int run(int argc, char* argv[], const char* title, uint64_t seed)
     app.row_labels = gtk_size_group_new(GTK_SIZE_GROUP_HORIZONTAL);
     app.status_label = find_label(builder, "status-label");
     app.fast_forward_button = GTK_TOGGLE_BUTTON(find_button(builder, "fast-forward-button"));
+    app.pause_button = GTK_TOGGLE_BUTTON(find_button(builder, "pause-button"));
+    app.speed_menu = find_dropdown(builder, "speed-menu");
     app.stats_updated_at = g_get_monotonic_time();
+
+    for (const SpeedOption& speed : SPEEDS) {
+        gtk_combo_box_text_append_text(app.speed_menu, speed.label);
+    }
+
+    gtk_combo_box_set_active(GTK_COMBO_BOX(app.speed_menu), 0); // Real time, which is where the simulation starts.
+
+    // Like the buttons next to it, clicking this shouldn't take the focus away from where it was.
+    gtk_widget_set_focus_on_click(GTK_WIDGET(app.speed_menu), FALSE);
 
     build_project_widgets(app);
 
@@ -889,6 +1024,9 @@ int run(int argc, char* argv[], const char* title, uint64_t seed)
     g_signal_connect(main_window, "key-release-event", G_CALLBACK(on_key_release), &app);
     g_signal_connect(main_window, "focus-out-event", G_CALLBACK(on_focus_out), &app);
     g_signal_connect(app.fast_forward_button, "toggled", G_CALLBACK(on_fast_forward_toggled), &app);
+    g_signal_connect(app.pause_button, "toggled", G_CALLBACK(on_pause_toggled), &app);
+    g_signal_connect(find_button(builder, "step-button"), "clicked", G_CALLBACK(on_step_clicked), &app);
+    g_signal_connect(app.speed_menu, "changed", G_CALLBACK(on_speed_changed), &app);
 
     app.sim.start();
 
