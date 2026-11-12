@@ -25,6 +25,46 @@
 S: back to real time
 Hold V: watch in real time while fast forwarding</property>
               </object>
+              <packing>
+                <property name="position">0</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkToggleButton" id="pause-button">
+                <property name="label" translatable="yes">Pause</property>
+                <property name="visible">True</property>
+                <property name="can-focus">False</property>
+                <property name="receives-default">False</property>
+                <property name="tooltip-text" translatable="yes">Space: pause and carry on
+The view can still be moved and zoomed while paused</property>
+              </object>
+              <packing>
+                <property name="position">1</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkButton" id="step-button">
+                <property name="label" translatable="yes">Step</property>
+                <property name="visible">True</property>
+                <property name="can-focus">False</property>
+                <property name="receives-default">False</property>
+                <property name="tooltip-text" translatable="yes">N: run one step, pausing first if it is running
+Hold N to keep stepping</property>
+              </object>
+              <packing>
+                <property name="position">2</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkComboBoxText" id="speed-menu">
+                <property name="visible">True</property>
+                <property name="can-focus">False</property>
+                <property name="tooltip-text" translatable="yes">Slow motion, for when it isn't fast forwarding
+[ and ]: slower and faster</property>
+              </object>
+              <packing>
+                <property name="position">3</property>
+              </packing>
             </child>
           </object>
           <packing>
