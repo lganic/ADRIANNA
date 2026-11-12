@@ -1,4 +1,7 @@
 This is the idea for the runtime training. 
+Note from future logan. These are bad ideas. Only keeping them around for posterity sake.
+
+What I was doing here was step 1 on realizing that someone already figured this out, and its called actor-critic
 
 Good reward, long term.
 
