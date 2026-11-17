@@ -10,6 +10,7 @@ Every folder in here is a task that the GUI gets compiled for. Each one builds t
 | `island_food` | The thruster organism going after food across a group of islands, with slow and costly water all around them. |
 | `memory_chase` | `chase_target`, but the dot gets angry, and an LSTM has to remember the warning for as long as it lasts. |
 | `island_evolution` | `island_food` with 40 islands and a population that lives off of energy, reproduces, and evolves its networks the way CoDeepNEAT does. |
+| `continents` | `island_evolution` across six continents and two cold poles, where agents can see, bite, eat, hold on to, and call out to each other, and grow with how well fed they are. |
 
 ## Compiling
 
