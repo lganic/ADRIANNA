@@ -11,6 +11,8 @@ Every folder in here is a task that the GUI gets compiled for. Each one builds t
 | `memory_chase` | `chase_target`, but the dot gets angry, and an LSTM has to remember the warning for as long as it lasts. |
 | `island_evolution` | `island_food` with 40 islands and a population that lives off of energy, reproduces, and evolves its networks the way CoDeepNEAT does. |
 | `continents` | `island_evolution` across six continents and two cold poles, where agents can see, bite, eat, hold on to, and call out to each other, and grow with how well fed they are. |
+| `hail_mary` | Wolf packs that share a genome evolve to hunt bison that take more than one wolf, and to call to each other across continents where half can't hear. See its README. |
+| `food_web` | `hail_mary`'s lessons on one walled map with four continents and grass, where evolving bison, hares, and wolves are born and die, and cycle against each other. See its README. |
 
 ## Compiling
 

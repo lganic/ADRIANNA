@@ -55,6 +55,14 @@ Each agent sees through five eyes, which split up the view in front of it betwee
 
 The networks evolve the same way as `island_evolution`, except that layers can be LSTMs as well as dense ones. Founders start with an LSTM, and a dense layer that sees it and the inputs, like `memory_chase`. To learn, an agent replays each 16 step stretch through its network from the memory it started that stretch with, so it doesn't have to keep every step's gradients around while it acts. Each action is judged by everything that came after it to the end of the stretch. A lambda slider can make that count less, and lean more on the critic's guess (generalised advantage estimation), but nothing tried below 1 learned any better. Another slider caps how random the bite can be. Left alone, its noise climbs to the most any output is allowed, so a bite is a coin flip, but capping it lower still didn't get agents to bite only what they touch. A third slider judges the bite on its own, by just what it got on the steps it could have bitten something on: what it took, what biting cost, and what it did to family. Turned all the way up, with the family harm slider turned up once the founders' families have drifted apart, agents in contact bite strangers more than close family in every seed tried, though only by a few percent. On its own, without the family harm, it makes agents bite nearly all the time. There are sliders for what everything costs and how everything is rewarded, including a share of nearby family's food reward, and a share of the harm an agent does to family by biting it (what the bitten one lost, times how related they are), which are both off to start with.
 
+### `hail_mary`
+
+A second go at what `continents` was after, rebuilt around what stopped it. Wolves live in packs that share one genome and one food store, and every weight in their brains is a gene, so evolution shapes what they do directly, and judges a whole life at once. Their prey are bison and hares, which run on fixed rules. A healthy bison runs as fast as a wolf and heals faster than one wolf can bite it, so it takes two or more, and grown bison gore wolves in front of them and charge wolves biting the herd. Wolves see 30 m, but hear calls on three channels from across the continent, packmates apart from strangers, so a wolf that finds a herd has something worth calling about. There are eight continents that wrap round at the edges, and only meet when a pack migrates, so half of them can have calls muted as a control. Hunting healthy bison together evolves on nearly every continent. Over 4 seeds, the continents that could hear calls were the ones that kept it up, killing about 1.7 times as many bison, while most of the muted ones fell back on hares, though one seed went the other way. See [projects/hail_mary/README.md](projects/hail_mary/README.md) for why each part is the way it is, the research behind it, and the results in full. `hail_mary_headless` runs it with no window, for experiments.
+
+### `food_web`
+
+The lessons of `hail_mary`, taken back to one walled map with four large continents, which anyone can swim between at a cost. Grass grows on the land, bison and hares eat it, and wolves eat them, and every one of the three evolves. Prey numbers come only from who is born and who dies: a continent only gets a wandering animal when it has almost none of a kind left. Bison, wolves, and hares rise and fall against each other every few hours, with wolves following bison. See [projects/food_web/README.md](projects/food_web/README.md).
+
 ## Installing the tools (MSYS2)
 
 The build uses GCC, CMake, Ninja, and GTK3 from the MSYS2 **UCRT64** environment.
@@ -139,7 +147,7 @@ cmake --build --preset msys2-ucrt64 --target chase_target
 ./build/chase_target.exe
 ```
 
-The targets are `chase_target`, `find_food`, `thruster_chase`, `island_food`, `memory_chase`, and `island_evolution`. To build all of them at once, leave off the target:
+The targets are `chase_target`, `find_food`, `thruster_chase`, `island_food`, `memory_chase`, `island_evolution`, `continents`, `hail_mary`, and `food_web`. To build all of them at once, leave off the target:
 
 ```bash
 cmake --build --preset msys2-ucrt64
